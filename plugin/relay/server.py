@@ -2302,6 +2302,9 @@ async def _bridge_dispatch(
         # .content.toIntOrNull() etc. rather than .intOrNull.
         body = dict(params)
 
+    if path == "/calendar" and (not isinstance(selector, str) or not selector.strip()):
+        return web.json_response({"error_code": "explicit_device_required"}, status=400)
+
     if selector is not None and not isinstance(selector, str):
         return web.json_response({"error": "device selector must be a string"}, status=400)
 
@@ -2341,6 +2344,11 @@ async def _bridge_dispatch(
 # expects ``/get_apps`` and the tool at line ~230 of android_tool.py calls
 # ``_get("/apps")``. We register both so the legacy tool path keeps
 # working while new code can use the canonical ``/get_apps``.
+
+
+async def handle_native_calendar(request: web.Request) -> web.Response:
+    """New optional Relay service API, never an upstream Hermes endpoint."""
+    return await _bridge_dispatch(request, "/calendar")
 
 
 async def handle_bridge_ping(request: web.Request) -> web.Response:
@@ -5190,6 +5198,7 @@ def create_app(config: RelayConfig) -> web.Application:
     # === END PHASE3-bridge-server ===
 
     # === PHASE3-status: loopback-gated structured Android bridge status ===
+    app.router.add_post("/calendar", handle_native_calendar)
     app.router.add_get("/bridge/devices", handle_bridge_devices)
     app.router.add_post("/bridge/select-active", handle_bridge_select_active)
     app.router.add_get("/bridge/status", handle_bridge_status)

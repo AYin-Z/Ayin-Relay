@@ -36,6 +36,10 @@ def register(ctx):
             check_fn=(lambda: True) if tool_name == "android_setup" else _check_requirements,
         )
 
+    from .tools.android_calendar import SCHEMA as calendar_schema, android_calendar
+    ctx.register_tool(name="android_calendar", toolset="android", schema=calendar_schema,
+                      handler=android_calendar, check_fn=lambda: True)
+
     # Register 5 desktop_* tools (Phase B client-side tool routing).
     # Per-tool check_fn closure so the relay ping is scoped to THIS tool,
     # not the whole toolset — matches the pattern in desktop_tool.py module
