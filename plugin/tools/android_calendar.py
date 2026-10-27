@@ -25,7 +25,16 @@ async def android_calendar(args: dict[str, Any], **kwargs: Any) -> str:
                 f"{_bridge_url().rstrip('/')}/calendar", json=args,
                 headers={"Authorization": f"Bearer {token}"},
             ) as response:
-                result = await response.json()
+                try:
+                    result = await response.json()
+                except (aiohttp.ContentTypeError, ValueError):
+                    # Relay auth and absent-route responses can be plain text.
+                    # Keep definite denials distinct from uncertain mutations.
+                    denial = {401: "bridge_auth_required", 403: "bridge_permission_denied",
+                              404: "calendar_unavailable"}.get(response.status)
+                    if denial is None:
+                        raise
+                    result = {"error_code": denial}
                 return json.dumps({"http_status": response.status, "result": result})
     except (asyncio.TimeoutError, aiohttp.ClientError, ValueError):
         return json.dumps({"error_code": "outcome_unknown", "retry_create": False,

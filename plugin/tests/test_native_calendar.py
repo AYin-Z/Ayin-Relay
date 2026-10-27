@@ -136,6 +136,23 @@ class CalendarToolTests(IsolatedAsyncioTestCase):
         self.assertEqual(result, {"http_status": 409, "result": {"error_code": "revision_conflict", "revision": 3}})
 
 
+    async def test_plain_http_denials_keep_status_without_retry(self) -> None:
+        args = {"operation": "create", "device": "phone", "external_id": "stable:1"}
+        for status, error_code in [(401, "bridge_auth_required"),
+                                   (403, "bridge_permission_denied"),
+                                   (404, "calendar_unavailable")]:
+            with self.subTest(status=status):
+                response = mock.Mock(status=status)
+                response.json = mock.AsyncMock(side_effect=ValueError("not JSON"))
+                context = mock.AsyncMock()
+                context.__aenter__.return_value = response
+                with mock.patch("plugin.tools.android_calendar._bridge_token", return_value="unit-test-token"), mock.patch(
+                        "plugin.tools.android_calendar.aiohttp.ClientSession.post", return_value=context) as post:
+                    result = json.loads(await android_calendar(args))
+                self.assertEqual(result, {"http_status": status, "result": {"error_code": error_code}})
+                post.assert_called_once()
+
+
 class CalendarRegistrationTests(TestCase):
     def test_calendar_and_existing_transfer_tools_register_together(self) -> None:
         import plugin
