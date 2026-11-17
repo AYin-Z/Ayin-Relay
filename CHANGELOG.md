@@ -10,6 +10,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 
 - Optional authenticated Windows connector downloads use individual, single-use installation invitations and revocable desktop-only authorizations.
 - A Chinese headless installer confirms host permissions once and restores the background connector after login or process failure.
+- Desktop file tools can push and pull binary files through Relay using bounded chunks, SHA-256 verification, explicit device selection, and destination overwrite protection.
 
 ### Fixed
 

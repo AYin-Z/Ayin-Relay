@@ -538,7 +538,7 @@ class BridgeHandler:
             method,
             path,
             resolved_device_id or "legacy",
-            json.dumps(body) if body else "{}",
+            "[calendar request redacted]" if path == "/calendar" else (json.dumps(body) if body else "{}"),
         )
 
         record = BridgeCommandRecord(
@@ -650,10 +650,15 @@ class BridgeHandler:
         error_msg = payload.get("error")
 
         if isinstance(error_msg, str) and error_msg:
-            record.error = error_msg
+            record.error = "calendar_response_error" if record.path == "/calendar" else error_msg
         if result is not None and record.result_summary is None:
             try:
-                summary = json.dumps(result, default=str)
+                audit_result = ({key: result[key] for key in (
+                    "state", "error_code", "revision", "phone_saved", "notification_observed"
+                ) if key in result} if record.path == "/calendar" and isinstance(result, dict) else result)
+                if record.path == "/calendar" and not isinstance(result, dict):
+                    audit_result = {"error_code": "invalid_calendar_response"}
+                summary = json.dumps(audit_result, default=str)
             except (TypeError, ValueError):
                 summary = str(result)
             if len(summary) > 500:
