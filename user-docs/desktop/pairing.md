@@ -8,7 +8,7 @@ pair with must have the Relay plugin installed, enabled, and running. On the
 Hermes host, complete this once before minting a pairing code:
 
 ```bash
-hermes plugins install Codename-11/hermes-relay/plugin --enable
+hermes plugins install AYin-Z/Ayin-Relay/plugin --enable
 hermes relay doctor
 hermes relay start --no-ssl
 ```

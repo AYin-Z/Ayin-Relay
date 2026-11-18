@@ -403,7 +403,7 @@ fun AboutScreen(
                     ) {
                         OutlinedButton(
                             onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/Codename-11/hermes-relay"))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/AYin-Z/Ayin-Relay"))
                                 context.startActivity(intent)
                             },
                             modifier = Modifier.weight(1f)
@@ -418,7 +418,7 @@ fun AboutScreen(
                         }
                         OutlinedButton(
                             onClick = {
-                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://hermes-relay.dev/docs/"))
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/AYin-Z/Ayin-Relay/tree/main/docs"))
                                 context.startActivity(intent)
                             },
                             modifier = Modifier.weight(1f)
@@ -456,7 +456,7 @@ fun AboutScreen(
                     // Privacy policy link
                     OutlinedButton(
                         onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://hermes-relay.dev/privacy.html"))
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/AYin-Z/Ayin-Relay/blob/main/docs/privacy.md"))
                             context.startActivity(intent)
                         },
                         modifier = Modifier.fillMaxWidth()

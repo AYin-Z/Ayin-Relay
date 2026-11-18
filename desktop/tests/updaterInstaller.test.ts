@@ -70,6 +70,24 @@ test('desktop installer selection downloads the requested asset to an exact veri
   }
 })
 
+test('the default update channel queries only Ayin-Relay releases', async () => {
+  const originalFetch = globalThis.fetch
+  const requested: string[] = []
+  globalThis.fetch = async (input) => {
+    requested.push(String(input))
+    return new Response(JSON.stringify([]), { status: 200 })
+  }
+
+  try {
+    assert.equal(await checkForUpdate(), null)
+    assert.deepEqual(requested, [
+      'https://api.github.com/repos/AYin-Z/Ayin-Relay/releases?per_page=100&page=1'
+    ])
+  } finally {
+    globalThis.fetch = originalFetch
+  }
+})
+
 test('release discovery paginates past mixed-surface releases', async () => {
   const originalFetch = globalThis.fetch
   const requested: string[] = []

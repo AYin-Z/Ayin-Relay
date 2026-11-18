@@ -1,7 +1,12 @@
-# Releasing Hermes-Relay
+# Releasing Ayin-Relay
 
 > The full recipe for cutting a new release. Read this end-to-end before
 > tagging your first release.
+
+Releases and updates are owned by `AYin-Z/Ayin-Relay`. The independent baseline
+carries compatible version and archive formats. Historical Hermes-Relay tags
+and release assets are not republished as Ayin-Relay releases. Configure this
+repository's signing and publishing credentials before enabling release jobs.
 
 ## Release Tracks And Versioning
 
@@ -14,8 +19,8 @@ with optional prerelease identifiers.
 - Prerelease suffixes: `-alpha`, `-beta`, `-rc.N` (e.g. `0.2.0-beta.1`)
 
 Hermes-Relay ships three independently versioned production surfaces. Public
-GitHub Release titles use `Hermes-Relay <Surface> v<version>` (for example,
-`Hermes-Relay Android v1.13.0-rc.1`); immutable tag prefixes select the
+GitHub Release titles use `Ayin-Relay <Surface> v<version>` (for example,
+`Ayin-Relay Android v1.13.0-rc.1`); immutable tag prefixes select the
 corresponding build and deployment lane.
 
 | Surface | Tag prefix | Version source | Bump script | Release workflow |

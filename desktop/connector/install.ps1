@@ -23,7 +23,7 @@ if ($manifest.sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
     (Get-FileHash -LiteralPath $payload -Algorithm SHA256).Hash -ine $manifest.sha256) {
     throw '安装文件校验失败，请重新下载。'
 }
-Write-Host "Relay 后台连接器 → $($uri.Host)"
+Write-Host "Ayin-Relay 后台连接器 → $($uri.Host)"
 Write-Host '授权此服务器读写文件、执行命令、读取屏幕和控制键鼠、使用 USB、麦克风和摄像头。'
 Write-Host '这些能力以后自动批准；Windows 自身的权限限制仍然生效。登录后自动运行，不启动 GUI 或语音会话。'
 if (-not $AcceptTools) {
@@ -428,7 +428,7 @@ if ($Action -eq 'Stop') {
     $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 1)
     # Register disabled until the exact binary has authenticated successfully.
     $settings.Enabled = $false
-    Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Description 'Relay 后台连接器，登录自启及进程恢复' -Force | Out-Null
+    Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Description 'Ayin-Relay 后台连接器，登录自启及进程恢复' -Force | Out-Null
     $newTaskRegistered = $true
     Grant-ConnectorTaskManagement
     $taskReady = $true

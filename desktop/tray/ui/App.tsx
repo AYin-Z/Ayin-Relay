@@ -1148,9 +1148,9 @@ function SettingsPage({ daemon, computerControl, startup, daemonAutostart, activ
 
 function HelpPage({ snapshot, host, onBack, onAction }: { snapshot: Snapshot; host: Host | null; onBack: () => void; onAction: (name: string, args?: Record<string, unknown>) => Promise<unknown> }) {
   const links = [
-    ['Documentation', 'https://hermes-relay.dev/docs/desktop/'],
-    ['Troubleshooting', 'https://hermes-relay.dev/docs/desktop/troubleshooting/'],
-    ['Release notes', 'https://github.com/Codename-11/hermes-relay/releases']
+    ['Documentation', 'https://github.com/AYin-Z/Ayin-Relay/tree/main/user-docs/desktop'],
+    ['Troubleshooting', 'https://github.com/AYin-Z/Ayin-Relay/blob/main/user-docs/desktop/troubleshooting.md'],
+    ['Release notes', 'https://github.com/AYin-Z/Ayin-Relay/releases']
   ] as const
   return <section className="page-panel help-page"><button className="back-button" onClick={onBack}><ArrowLeft /> Back to Settings</button><div className="about-hero"><img src={logo} alt="" /><span><p>Desktop companion</p><h1>Hermes-Relay CLI UI</h1><small>Compact control for this PC</small></span></div>
     <div className="settings-group"><h2>About</h2><div className="settings-card about-facts"><dl><div><dt>UI version</dt><dd>{snapshot.ui_version ?? 'Unknown'}</dd></div><div><dt>CLI version</dt><dd>{snapshot.cli_version ?? 'Unknown'}</dd></div><div><dt>CLI path</dt><dd title={snapshot.cli_path ?? undefined}>{snapshot.cli_path ?? 'Not reported'}</dd></div><div><dt>Relay server</dt><dd>{host?.server_version ?? 'Not connected'}</dd></div></dl></div></div>

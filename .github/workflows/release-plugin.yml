@@ -153,7 +153,7 @@ jobs:
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v3
         with:
-          name: Hermes-Relay Plugin v${{ needs.validate.outputs.version }}
+          name: Ayin-Relay Plugin v${{ needs.validate.outputs.version }}
           tag_name: server-v${{ needs.validate.outputs.version }}
           prerelease: ${{ contains(needs.validate.outputs.version, '-') }}
           fail_on_unmatched_files: true

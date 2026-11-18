@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hermes-relay desktop CLI installer — macOS / Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh
 #
 # Downloads a prebuilt binary from GitHub Releases — no Node.js required.
 # Pin a specific release:
@@ -17,7 +17,7 @@
 
 set -eu
 
-REPO="${HERMES_RELAY_REPO:-Codename-11/hermes-relay}"
+REPO="${HERMES_RELAY_REPO:-AYin-Z/Ayin-Relay}"
 VERSION="${HERMES_RELAY_VERSION:-latest}"
 INSTALL_DIR="${HERMES_RELAY_INSTALL_DIR:-$HOME/.hermes/bin}"
 HERMES_ALIAS_MODE="$(printf '%s' "${HERMES_RELAY_HERMES_ALIAS:-skip}" | tr '[:upper:]' '[:lower:]')"

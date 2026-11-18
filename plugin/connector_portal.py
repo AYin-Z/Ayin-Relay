@@ -314,7 +314,7 @@ def create_app(config: PortalConfig) -> web.Application:
 
     async def landing(request: web.Request) -> web.Response:
         target = html.escape(f"{config.prefix}/private/", quote=True)
-        return _page("Relay 桌面连接器", f'''<h1>Relay 桌面连接器</h1><p>让你的电脑在后台持续连接 Relay，登录后自动启动，断线自动重连。</p>
+        return _page("Ayin-Relay 桌面连接器", f'''<h1>Ayin-Relay 桌面连接器</h1><p>让你的电脑在后台持续连接 Ayin-Relay，登录后自动启动，断线自动重连。</p>
 <p>进入后台登录后，领取仅供本次安装使用的 Windows 安装包。</p><a href="{target}">后台登录与下载</a>''')
 
     async def private_page(request: web.Request) -> web.Response:
@@ -325,7 +325,7 @@ def create_app(config: PortalConfig) -> web.Application:
 <ol><li>点击下方按钮下载专属安装包。</li><li>解压全部文件，双击 <strong>Install.cmd</strong>，按提示确认安装。</li><li>以后登录自动后台运行，无需再次填写配对码。</li></ol>
 <p>安装包的首次连接邀请只能使用一次，并在领取后 1 小时失效。请及时安装；超时后重新下载。请勿转发安装包。</p>
 <form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}"><button type="submit">下载 Windows 安装包</button></form>
-<p><small>已安装设备可在 Relay 设备管理中撤销长期授权。电脑上的 Status.cmd 可查看状态，Stop.cmd 可暂停连接。</small></p>''')
+<p><small>已安装设备可在 Ayin-Relay 设备管理中撤销长期授权。电脑上的 Status.cmd 可查看状态，Stop.cmd 可暂停连接。</small></p>''')
 
     async def download(request: web.Request) -> web.StreamResponse:
         subject = await identity(request)
@@ -362,7 +362,7 @@ def create_app(config: PortalConfig) -> web.Application:
                                          invite=invite, expires_at=started + lifetime)
             response = web.StreamResponse(headers={**_SECURITY_HEADERS,
                 "Content-Type": "application/zip",
-                "Content-Disposition": 'attachment; filename="Relay-Connector-Windows.zip"',
+                "Content-Disposition": 'attachment; filename="Ayin-Relay-Connector-Windows.zip"',
                 "Content-Length": str(path.stat().st_size)})
             await response.prepare(request)
             with path.open("rb") as archive:

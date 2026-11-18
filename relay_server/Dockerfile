@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-LABEL org.opencontainers.image.source="https://github.com/Codename-11/hermes-relay"
+LABEL org.opencontainers.image.source="https://github.com/AYin-Z/Ayin-Relay"
 LABEL org.opencontainers.image.description="Hermes-Relay Server — WSS bridge for terminal and device control"
 
 RUN groupadd -r relay && useradd -r -g relay -m relay

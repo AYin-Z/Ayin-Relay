@@ -1,6 +1,6 @@
 # hermes-relay desktop CLI uninstaller — Windows (PowerShell 5.1+).
 #
-#   irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.ps1 | iex
+#   irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.ps1 | iex
 #
 # Reverses install.ps1. Three tiers:
 #
@@ -170,5 +170,5 @@ if ($service) {
 
 Say ''
 Say 'Removed. hermes-relay is gone. To reinstall:'
-Say '  irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex'
+Say '  irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex'
 Say ''

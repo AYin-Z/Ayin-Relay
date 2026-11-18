@@ -1,6 +1,6 @@
 # Security Policy
 
-Hermes-Relay can give a remote AI agent real control of a phone and, via the
+Ayin-Relay can give a remote AI agent real control of a phone and, via the
 CLI, of a paired desktop. We take security reports seriously and welcome
 responsible disclosure.
 
@@ -17,11 +17,8 @@ Use one of these private channels instead:
 
 1. **GitHub Private Vulnerability Reporting (preferred).** Go to the
    repository's **Security** tab → **Report a vulnerability**, or
-   [open a draft advisory directly](https://github.com/Codename-11/hermes-relay/security/advisories/new).
+   [open a draft advisory directly](https://github.com/AYin-Z/Ayin-Relay/security/advisories/new).
    This keeps the whole exchange private and threaded with the code.
-2. **Email** — `security@codename-11.dev`. Use this if you can't use GitHub.
-   If you'd like to encrypt the report, say so in a first contact message and
-   we'll arrange a key.
 
 ### What to include
 

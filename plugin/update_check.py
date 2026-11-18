@@ -22,7 +22,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-GITHUB_RELEASES_URL = "https://api.github.com/repos/Codename-11/hermes-relay/releases"
+GITHUB_RELEASES_URL = "https://api.github.com/repos/AYin-Z/Ayin-Relay/releases"
 SERVER_TAG_PREFIX = "server-v"
 LEGACY_PLUGIN_TAG_PREFIX = "plugin-v"
 

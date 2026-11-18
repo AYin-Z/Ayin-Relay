@@ -2,14 +2,14 @@
 # Hermes-Relay — canonical one-line installer (full relay path).
 #
 # Usage:
-#   curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/install.sh | bash
 #
 # Two ways to install:
 #   - FULL RELAY (this script): sets up the WSS relay server, systemd user
 #     unit, editable pip install, shell shims, skills dir, and the optional
 #     compatibility bootstrap — everything needed for terminal, bridge/phone
 #     control, relay voice, desktop tooling, and remote access.
-#   - TOOLS-ONLY (native): `hermes plugins install Codename-11/hermes-relay/plugin`
+#   - TOOLS-ONLY (native): `hermes plugins install AYin-Z/Ayin-Relay/plugin`
 #     uses hermes-agent's built-in plugin installer to discover + enable the
 #     android_*/desktop_* tools and prompt for optional voice-provider keys
 #     (declared in plugin/plugin.yaml `requires_env`). The `/plugin` subdir is
@@ -65,7 +65,7 @@
 # Uninstall:
 #   bash ~/.hermes/hermes-relay/uninstall.sh
 #   (Or, if you don't have the clone any more:
-#    curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/uninstall.sh | bash)
+#    curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/uninstall.sh | bash)
 #
 #   The uninstaller reverses every step here in the opposite order. It is
 #   idempotent and never touches shared state (~/.hermes/.env, the gateway's
@@ -166,7 +166,7 @@ while [ $# -gt 0 ]; do
 done
 
 # ── Config ─────────────────────────────────────────────────────────────────
-REPO_URL="https://github.com/Codename-11/hermes-relay.git"
+REPO_URL="https://github.com/AYin-Z/Ayin-Relay.git"
 # Branch precedence: --branch flag wins over HERMES_RELAY_BRANCH env var
 # wins over the default ("main"). The env var is kept for backwards
 # compat with anyone scripting against the pre-flag interface.
@@ -316,7 +316,7 @@ if [ -n "$_VENV_AUTODETECTED" ] && [ "$VENV_PY" = "$DOCKER_VENV_PY" ]; then
     info "This installer's editable install + systemd + shell shims do not"
     info "apply inside the immutable container image."
     info "Install the plugin the native way instead:"
-    printf "\n        ${C_BOLD}hermes plugins install Codename-11/hermes-relay/plugin${C_RESET}\n\n"
+    printf "\n        ${C_BOLD}hermes plugins install AYin-Z/Ayin-Relay/plugin${C_RESET}\n\n"
     info "then enable it when prompted and restart the container."
     info "(To force this script anyway, set HERMES_VENV_PY explicitly.)"
     exit 1
@@ -708,7 +708,7 @@ cat > "$UPDATE_SHIM_PATH" <<'SHIM'
 #   To install a feature branch BEFORE it has been merged to main, override
 #   the install.sh URL with HERMES_RELAY_INSTALL_URL:
 #
-#     HERMES_RELAY_INSTALL_URL=https://raw.githubusercontent.com/Codename-11/hermes-relay/feature/foo/install.sh \
+#     HERMES_RELAY_INSTALL_URL=https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/feature/foo/install.sh \
 #       hermes-relay-update --branch feature/foo
 #
 #   This is a one-shot escape hatch — after the install lands the host has
@@ -720,7 +720,7 @@ cat > "$UPDATE_SHIM_PATH" <<'SHIM'
 # hermes-relay, and prompts before restarting hermes-gateway. Set
 # HERMES_RELAY_RESTART_GATEWAY=1 to opt into the gateway restart non-
 # interactively.
-INSTALL_URL="${HERMES_RELAY_INSTALL_URL:-https://raw.githubusercontent.com/Codename-11/hermes-relay/main/install.sh}"
+INSTALL_URL="${HERMES_RELAY_INSTALL_URL:-https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/install.sh}"
 exec curl -fsSL "$INSTALL_URL" | bash -s -- "$@"
 SHIM
 chmod +x "$UPDATE_SHIM_PATH"
@@ -981,7 +981,7 @@ printf "    ${C_DIM}%s${C_RESET} ${C_BOLD}/hermes-relay-self-setup${C_RESET}  ${
 printf "\n"
 printf "  ${C_BOLD}${C_CYAN}Update later${C_RESET} ${C_DIM}(idempotent — pick whichever you remember)${C_RESET}\n"
 printf "    ${C_DIM}%s${C_RESET} ${C_BOLD}hermes-relay-update${C_RESET}             ${C_DIM}# shortest path${C_RESET}\n" "$SYM_INFO"
-printf "    ${C_DIM}%s${C_RESET} ${C_BOLD}curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/install.sh | bash${C_RESET}\n" "$SYM_INFO"
+printf "    ${C_DIM}%s${C_RESET} ${C_BOLD}curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/install.sh | bash${C_RESET}\n" "$SYM_INFO"
 printf "\n"
 printf "  ${C_BOLD}${C_CYAN}Manage the relay service${C_RESET}\n"
 printf "    ${C_DIM}%s${C_RESET} ${C_BOLD}systemctl --user status hermes-relay${C_RESET}\n" "$SYM_INFO"

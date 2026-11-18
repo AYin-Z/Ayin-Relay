@@ -54,7 +54,7 @@ export default function PushConsole() {
             compose and send notifications directly from the dashboard.{" "}
             <a
               className="underline"
-              href="https://github.com/Codename-11/hermes-relay/blob/main/docs/plans/"
+              href="https://github.com/AYin-Z/Ayin-Relay/blob/main/docs/plans/"
               target="_blank"
               rel="noreferrer"
             >

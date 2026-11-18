@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # hermes-relay desktop CLI uninstaller — macOS / Linux.
 #
-#   curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.sh | sh
 #
 # Reverses install.sh. Three tiers:
 #
@@ -151,5 +151,5 @@ fi
 
 say ""
 say "Removed. hermes-relay is gone. To reinstall:"
-say "  curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh"
+say "  curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh"
 say ""

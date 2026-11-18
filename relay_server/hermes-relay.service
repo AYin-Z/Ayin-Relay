@@ -1,6 +1,6 @@
 [Unit]
 Description=Hermes-Relay Server (WSS bridge for Android app)
-Documentation=https://github.com/Codename-11/hermes-relay/blob/main/docs/relay-server.md
+Documentation=https://github.com/AYin-Z/Ayin-Relay/blob/main/docs/relay-server.md
 After=network.target
 StartLimitIntervalSec=600
 StartLimitBurst=5

@@ -253,7 +253,7 @@ def _plugin_manager_layout(plugin_dir: Path) -> dict[str, Any]:
         "has_register_init": (plugin_dir / "__init__.py").exists(),
         "has_dashboard_manifest": (plugin_dir / "dashboard" / "manifest.json").exists(),
         "looks_like_user_plugin": parent.name == "plugins" and parent.parent.name == ".hermes",
-        "recommended_install_identifier": "Codename-11/hermes-relay/plugin",
+        "recommended_install_identifier": "AYin-Z/Ayin-Relay/plugin",
     }
 
 
@@ -621,7 +621,7 @@ def collect_doctor_report(
             f"({relay_import['error']}) — `hermes relay start` will crash. "
             "If the error names a missing 'plugin' module, this plugin build "
             "predates native-layout support; update it "
-            "(hermes plugins install Codename-11/hermes-relay/plugin) or "
+            "(hermes plugins install AYin-Z/Ayin-Relay/plugin) or "
             "reinstall with install.sh."
         ),
     )

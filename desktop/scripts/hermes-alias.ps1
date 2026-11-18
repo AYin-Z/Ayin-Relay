@@ -1,7 +1,7 @@
 # Manage the optional `hermes` alias for hermes-relay on Windows.
 #
 # Status:
-#   irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/hermes-alias.ps1 | iex
+#   irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/hermes-alias.ps1 | iex
 #
 # Enable:
 #   $env:HERMES_RELAY_HERMES_ALIAS='enable'; irm .../hermes-alias.ps1 | iex

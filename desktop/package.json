@@ -61,12 +61,12 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/Codename-11/hermes-relay.git",
+    "url": "git+https://github.com/AYin-Z/Ayin-Relay.git",
     "directory": "desktop"
   },
-  "homepage": "https://github.com/Codename-11/hermes-relay/tree/main/desktop#readme",
+  "homepage": "https://github.com/AYin-Z/Ayin-Relay/tree/main/desktop#readme",
   "bugs": {
-    "url": "https://github.com/Codename-11/hermes-relay/issues"
+    "url": "https://github.com/AYin-Z/Ayin-Relay/issues"
   },
   "keywords": [
     "hermes",

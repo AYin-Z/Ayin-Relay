@@ -1,6 +1,6 @@
 # Troubleshooting <ExperimentalBadge />
 
-Common errors in the CLI, indexed by exact message. If your problem isn't here, [open an issue](https://github.com/Codename-11/hermes-relay/issues/new).
+Common errors in the CLI, indexed by exact message. If your problem isn't here, [open an issue](https://github.com/AYin-Z/Ayin-Relay/issues/new).
 
 ## `hermes-relay: command not found` / `is not recognized`
 
@@ -111,7 +111,7 @@ When elevated access is no longer needed, choose **Return to user mode**. The tr
 
 Open UI Settings and use **Open terminal** for a normal command prompt with `hermes-relay` available, or **Open Hermes CLI** to start the paired Hermes TUI directly. **View daemon log** opens `~/.hermes/daemon.log`; tray startup and child-process failures are recorded separately in `~/.hermes/tray.log`. **Run diagnostics** uses the CLI diagnostic path so the UI and `hermes-relay doctor` report the same local install state.
 
-The **Help & About** page links to the [desktop documentation](https://hermes-relay.dev/docs/desktop/), [troubleshooting guide](https://hermes-relay.dev/docs/desktop/troubleshooting/), and [release notes](https://github.com/Codename-11/hermes-relay/releases?q=desktop) in your default browser and also provides the log and diagnostic shortcuts.
+The **Help & About** page links to the [desktop documentation](./index.md), [troubleshooting guide](./troubleshooting.md), and [release notes](https://github.com/AYin-Z/Ayin-Relay/releases?q=desktop) in your default browser and also provides the log and diagnostic shortcuts.
 
 ## Changing host access did not change the daemon's tools
 
@@ -266,11 +266,11 @@ Fixed in alpha.11. Pre-alpha.11 builds picked the wrong "latest" release because
 ::: code-group
 
 ```powershell [Windows]
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 ```
 
 ```bash [macOS / Linux]
-curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh
 ```
 
 :::
@@ -290,11 +290,11 @@ Fixed in releases after 2026-04-23. Upgrade:
 ::: code-group
 
 ```powershell [Windows]
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 ```
 
 ```bash [macOS / Linux]
-curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh
 ```
 
 ```bash [from source]

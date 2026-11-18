@@ -13,11 +13,11 @@ It also includes a terminal escape hatch for when *you* want to drive: bare `her
 ::: code-group
 
 ```powershell [Windows · CLI + management UI]
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 ```
 
 ```bash [macOS / Linux · CLI]
-curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh
 ```
 
 :::
@@ -83,7 +83,7 @@ certificate pins and multi-endpoint candidates survive the trust ceremony.
 </div>
 
 ::: warning Experimental phase
-Prebuilt CLI binaries ship for Windows x64, Linux x64/arm64, and macOS x64/arm64. The optional compact management UI is Windows-only. Assets are unsigned, so SmartScreen or Gatekeeper warnings are expected. Wire protocol details may shift between prereleases, and multi-client routing remains a single-client MVP. [File an issue](https://github.com/Codename-11/hermes-relay/issues) when something does not behave as documented.
+Prebuilt CLI binaries ship for Windows x64, Linux x64/arm64, and macOS x64/arm64. The optional compact management UI is Windows-only. Assets are unsigned, so SmartScreen or Gatekeeper warnings are expected. Wire protocol details may shift between prereleases, and multi-client routing remains a single-client MVP. [File an issue](https://github.com/AYin-Z/Ayin-Relay/issues) when something does not behave as documented.
 :::
 
 ::: info Where this track is headed
@@ -158,7 +158,7 @@ While inside the shell/TUI session (bare `hermes-relay`, the default mode), `Ctr
 - **[Local tool routing](./tools.md)** — 23 agent-callable tools: file I/O, unified-diff patching, ripgrep, shell + PowerShell exec, process control, a background-job API, archive/transfer, clipboard, screenshot, and editor-launcher. Strict consent gate per relay URL; non-TTY stdin fails closed. The experimental computer-use family is off by default and has a separate persistent enablement switch.
 - **[Self-update](./subcommands.md#hermes-relay-update)** — `hermes-relay update` polls GitHub Releases, semver-compares, and verifies SHA256. POSIX and Windows CLI-only installs replace the standalone binary; a detected Windows UI installation updates the complete CLI+UI bundle and restores the processes that were running.
 - **[Surface plugins](./subcommands.md#hermes-relay-plugins)** — install, update, and launch terminal dashboard plugins from the CLI. The first built-in plugin is [Herm](https://github.com/liftaris/herm), installed as `herm-tui` and resumed with `herm -c`.
-- **[Workspace awareness](./subcommands.md#hermes-relay-workspace)** — on connect, the client advertises `cwd`, `git_root`, `git_branch`, `repo_name`, `hostname`, `platform`, `active_shell` to the relay so the agent knows which repo you're in. Client-side capability shipped in alpha.6; server-side prompt-context consumption is on the way (see [docs/project/ROADMAP.md](https://github.com/Codename-11/hermes-relay/blob/main/docs/project/ROADMAP.md#desktop-track-parallel-lane-to-android--experimental)).
+- **[Workspace awareness](./subcommands.md#hermes-relay-workspace)** — on connect, the client advertises `cwd`, `git_root`, `git_branch`, `repo_name`, `hostname`, `platform`, `active_shell` to the relay so the agent knows which repo you're in. Client-side capability shipped in alpha.6; server-side prompt-context consumption is on the way (see [docs/project/ROADMAP.md](https://github.com/AYin-Z/Ayin-Relay/blob/main/docs/project/ROADMAP.md#desktop-track-parallel-lane-to-android--experimental)).
 - **[Conversation picker](./subcommands.md#hermes-relay-shell)** — on first or fresh attach, choose from recent server-side Hermes conversations with first-prompt previews before the TUI starts.
 - **[TUI session continuity](./subcommands.md#hermes-relay-sessions)** — bare `hermes-relay` resumes the active/default tmux session, replays recent scrollback, and `sessions list/resume/new/kill` gives explicit control when you need it.
 - **[Editor tool + interactive patch approval](./tools.md#desktop-open-in-editor-and-interactive-patches)** — agent calls `desktop_open_in_editor(path, line, col)` to open `$VISUAL` / `$EDITOR` / VSCode / Cursor / Sublime / nvim. Agent-proposed patches render as colored unified diffs with `y`/`n`/`e`/`r` prompts.
@@ -193,7 +193,7 @@ The Windows one-liner installs the checksum-verified CLI and UI bundle by defaul
 
 **Settings** owns this PC. Its daemon section can restart the daemon, explicitly **Restart as Administrator...** through Windows UAC, or **Return to user mode** by stopping the elevated daemon once and starting it normally. The UI itself never elevates. Administrator mode is intentionally an action instead of a sticky toggle: approved commands and input actions inherit the daemon's elevated privileges.
 
-The CLI section can **Open terminal** at a normal prompt, **Open Hermes CLI** directly into the paired Hermes TUI, **View daemon log**, or **Run diagnostics**. Updates manage the CLI and UI bundle together. **Help & About** shows the UI, CLI, and connected Relay versions and links to the [desktop documentation](https://hermes-relay.dev/docs/desktop/), [troubleshooting guide](https://hermes-relay.dev/docs/desktop/troubleshooting/), [release notes](https://github.com/Codename-11/hermes-relay/releases?q=desktop), logs, and diagnostics. External links open in the default browser.
+The CLI section can **Open terminal** at a normal prompt, **Open Hermes CLI** directly into the paired Hermes TUI, **View daemon log**, or **Run diagnostics**. Updates manage the CLI and UI bundle together. **Help & About** shows the UI, CLI, and connected Relay versions and links to the [desktop documentation](./index.md), [troubleshooting guide](./troubleshooting.md), [release notes](https://github.com/AYin-Z/Ayin-Relay/releases?q=desktop), logs, and diagnostics. External links open in the default browser.
 
 **Settings → Computer control** reports whether the preferred CUA Driver engine
 is absent, incompatible, degraded, or ready. A ready runtime handles structured
@@ -220,8 +220,8 @@ Use `shell` when you want to drive interactively; use `chat --json` from scripts
 - [Hermes-Relay Android client](/guide/) — same project, same relay, different surface (phone control, voice, bridge).
 - [Hermes Agent](https://github.com/NousResearch/hermes-agent) — the agent platform the CLI talks to.
 - [Herm](https://github.com/liftaris/herm) — optional terminal dashboard plugin installable from the CLI.
-- [CLI GitHub source](https://github.com/Codename-11/hermes-relay/tree/main/desktop) — `@hermes-relay/cli` package.
-- [Release notes](https://github.com/Codename-11/hermes-relay/releases?q=desktop) — tagged `desktop-v*` (separate track from Android); historical releases are under `cli-v*`.
+- [CLI GitHub source](https://github.com/AYin-Z/Ayin-Relay/tree/main/desktop) — `@hermes-relay/cli` package.
+- [Release notes](https://github.com/AYin-Z/Ayin-Relay/releases?q=desktop) — tagged `desktop-v*` (separate track from Android); historical releases are under `cli-v*`.
 
 <style>
 .desktop-ui-doc-gallery {

@@ -2,7 +2,7 @@
 # Manage the optional `hermes` alias for hermes-relay on macOS/Linux.
 #
 # Status:
-#   curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/hermes-alias.sh | sh
+#   curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/hermes-alias.sh | sh
 #
 # Enable:
 #   HERMES_RELAY_HERMES_ALIAS=enable curl -fsSL .../hermes-alias.sh | sh

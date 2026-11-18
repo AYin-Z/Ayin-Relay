@@ -242,7 +242,7 @@ jobs:
           SOURCE_SHA="$(git rev-parse HEAD)"
           ./gradlew :app:assembleSideloadCandidate \
             -Pcandidate.kind=rc \
-            -Pcandidate.label="Hermes-Relay Android v${VERSION}" \
+            -Pcandidate.label="Ayin-Relay Android v${VERSION}" \
             -Pcandidate.sourceRef="android-v${VERSION}" \
             -Pcandidate.sourceSha="$SOURCE_SHA" \
             --console=plain
@@ -329,7 +329,7 @@ jobs:
             --update=production \
             --version-code=${{ needs.validate.outputs.version_code }} \
             --release-status=completed \
-            --release-name="Hermes-Relay Android v${{ needs.validate.outputs.version }}"
+            --release-name="Ayin-Relay Android v${{ needs.validate.outputs.version }}"
 
       # Public distribution happens only after Play accepts the production
       # submission above. This keeps a Play-detected release blocker from
@@ -338,7 +338,7 @@ jobs:
         if: ${{ needs.validate.outputs.prerelease != 'true' }}
         uses: softprops/action-gh-release@v3
         with:
-          name: Hermes-Relay Android v${{ needs.validate.outputs.version }}
+          name: Ayin-Relay Android v${{ needs.validate.outputs.version }}
           tag_name: android-v${{ needs.validate.outputs.version }}
           body_path: RELEASE_NOTES.md
           prerelease: false
@@ -353,7 +353,7 @@ jobs:
         if: ${{ needs.validate.outputs.prerelease == 'true' }}
         uses: softprops/action-gh-release@v3
         with:
-          name: Hermes-Relay Android v${{ needs.validate.outputs.version }}
+          name: Ayin-Relay Android v${{ needs.validate.outputs.version }}
           tag_name: android-v${{ needs.validate.outputs.version }}
           body_path: RELEASE_NOTES.md
           prerelease: true
@@ -367,7 +367,7 @@ jobs:
           HERMES_KEYSTORE_BASE64: ${{ secrets.HERMES_KEYSTORE_BASE64 }}
           PRERELEASE: ${{ needs.validate.outputs.prerelease }}
         run: |
-          echo "## Hermes-Relay Android v${{ needs.validate.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
+          echo "## Ayin-Relay Android v${{ needs.validate.outputs.version }}" >> "$GITHUB_STEP_SUMMARY"
           echo "" >> "$GITHUB_STEP_SUMMARY"
           if [ "$PRERELEASE" != "true" ]; then
             echo "✅ **Published the exact signed Play-preflight artifacts**" >> "$GITHUB_STEP_SUMMARY"

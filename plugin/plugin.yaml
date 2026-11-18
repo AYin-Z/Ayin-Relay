@@ -6,7 +6,7 @@ version: 1.13.1
 description: "Hermes-Relay plugin for QR pairing, relay sessions, dashboard management, remote desktop/phone tooling, and optional legacy compatibility diagnostics. Standard chat, Manage, and dashboard voice remain vanilla upstream Hermes surfaces."
 author: Axiom Labs
 license: MIT
-homepage: https://github.com/Codename-11/hermes-relay
+homepage: https://github.com/AYin-Z/Ayin-Relay
 tags: [android, dashboard, gateway, relay, remote-access, voice]
 python_dependencies:
   - "requests>=2.28.0,<3"

@@ -35,7 +35,7 @@ class ManifestCompatibilityTest(unittest.TestCase):
         self.assertEqual(self.manifest["license"], "MIT")
         self.assertEqual(
             self.manifest["homepage"],
-            "https://github.com/Codename-11/hermes-relay",
+            "https://github.com/AYin-Z/Ayin-Relay",
         )
         self.assertEqual(
             self.manifest["tags"],

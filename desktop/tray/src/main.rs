@@ -74,11 +74,11 @@ mod app {
     const LONG_ACTION_TIMEOUT: Duration = Duration::from_secs(10 * 60);
     const PAIRING_CLIPBOARD_SCRIPT: &str = "$ErrorActionPreference='Stop'; [Console]::OutputEncoding=[System.Text.UTF8Encoding]::new($false); $text=Get-Clipboard -Format Text -Raw; if($null -ne $text){[Console]::Write($text)}";
     const OFFICIAL_URLS: &[&str] = &[
-        "https://hermes-relay.dev/docs/",
-        "https://hermes-relay.dev/docs/desktop/",
-        "https://hermes-relay.dev/docs/desktop/troubleshooting/",
-        "https://github.com/Codename-11/hermes-relay",
-        "https://github.com/Codename-11/hermes-relay/releases",
+        "https://github.com/AYin-Z/Ayin-Relay/tree/main/docs",
+        "https://github.com/AYin-Z/Ayin-Relay/tree/main/user-docs/desktop",
+        "https://github.com/AYin-Z/Ayin-Relay/blob/main/user-docs/desktop/troubleshooting.md",
+        "https://github.com/AYin-Z/Ayin-Relay",
+        "https://github.com/AYin-Z/Ayin-Relay/releases",
     ];
 
     static TRAY_LOG_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
@@ -2713,13 +2713,13 @@ mod app {
 
         #[test]
         fn external_links_require_an_exact_official_destination() {
-            assert!(is_official_url("https://hermes-relay.dev/docs/desktop/"));
+            assert!(is_official_url("https://github.com/AYin-Z/Ayin-Relay/tree/main/user-docs/desktop"));
             assert!(is_official_url(
-                "https://github.com/Codename-11/hermes-relay/releases"
+                "https://github.com/AYin-Z/Ayin-Relay/releases"
             ));
             assert!(!is_official_url("https://hermes-relay.dev.evil.test/docs/"));
             assert!(!is_official_url(
-                "https://github.com/Codename-11/hermes-relay/issues/new"
+                "https://github.com/AYin-Z/Ayin-Relay/issues/new"
             ));
         }
 

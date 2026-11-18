@@ -33,7 +33,7 @@ class IssueReportAndDiagnosticsTest {
             labels = "bug",
         )
 
-        assertTrue(url.startsWith("https://github.com/Codename-11/hermes-relay/issues/new?"))
+        assertTrue(url.startsWith("https://github.com/AYin-Z/Ayin-Relay/issues/new?"))
         // Stable param order: title, labels, body.
         assertTrue(url.indexOf("title=") < url.indexOf("labels="))
         assertTrue(url.indexOf("labels=") < url.indexOf("body="))

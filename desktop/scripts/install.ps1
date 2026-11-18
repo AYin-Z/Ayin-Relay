@@ -1,6 +1,6 @@
 # hermes-relay desktop installer - Windows (PowerShell 5.1+).
 #
-#   irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+#   irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 #
 # Downloads the CLI + optional compact management tray installer by default - no Node.js required.
 # Install only the CLI binary instead:
@@ -21,7 +21,7 @@
 #Requires -Version 5.1
 $ErrorActionPreference = 'Stop'
 
-$repo    = if ($env:HERMES_RELAY_REPO)    { $env:HERMES_RELAY_REPO }    else { 'Codename-11/hermes-relay' }
+$repo    = if ($env:HERMES_RELAY_REPO)    { $env:HERMES_RELAY_REPO }    else { 'AYin-Z/Ayin-Relay' }
 $version = if ($env:HERMES_RELAY_VERSION) { $env:HERMES_RELAY_VERSION } else { 'latest' }
 $surface = if ($env:HERMES_RELAY_INSTALL_SURFACE) { $env:HERMES_RELAY_INSTALL_SURFACE.ToLowerInvariant() } else { 'tray' }
 $registeredDir = if ($surface -eq 'tray' -and -not $env:HERMES_RELAY_INSTALL_DIR) {

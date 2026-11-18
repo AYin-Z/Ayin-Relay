@@ -2,7 +2,7 @@
 // wrapping; `commands/update.ts` is the thin UI shell on top.
 //
 // Strategy:
-//   1. Query the GitHub Releases API for this repo (default Codename-11/hermes-relay),
+//   1. Query the GitHub Releases API for this repo (default AYin-Z/Ayin-Relay),
 //      prefer tags starting with `desktop-v`, and fall back to historical
 //      `cli-v` releases. Zero deps.
 //   2. Pick the asset for this platform (`process.platform` + `process.arch`).
@@ -28,7 +28,7 @@ import { pipeline } from 'node:stream/promises'
 
 import { VERSION } from './version.js'
 
-const DEFAULT_REPO = 'Codename-11/hermes-relay'
+const DEFAULT_REPO = 'AYin-Z/Ayin-Relay'
 const RELEASES_API = (repo: string, page: number): string =>
   `https://api.github.com/repos/${repo}/releases?per_page=100&page=${page}`
 

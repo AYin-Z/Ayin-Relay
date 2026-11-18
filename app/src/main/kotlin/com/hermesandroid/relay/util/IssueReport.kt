@@ -23,7 +23,7 @@ object IssueReport {
 
     /** Public issue tracker — keep in sync with the git remote. */
     private const val GITHUB_NEW_ISSUE =
-        "https://github.com/Codename-11/hermes-relay/issues/new"
+        "https://github.com/AYin-Z/Ayin-Relay/issues/new"
 
     /** Clipboard label used for every report copy in the app. */
     const val CLIP_LABEL = "Hermes-Relay report"

@@ -1,7 +1,13 @@
 # AGENTS.md
 
-Universal agent instructions for **Hermes-Relay**. This is the entry point for any
+Universal agent instructions for **Ayin-Relay**. This is the entry point for any
 coding agent (Claude Code, Codex, Cursor, etc.).
+
+Ayin-Relay is maintained in `AYin-Z/Ayin-Relay`. `origin` is the standalone
+repository and `origin/dev` is the integration authority. The former Hermes-Relay
+repository is historical provenance. Do not sync from it or use it as a default
+release or update source. Compatibility with NousResearch/hermes-agent is a
+separate runtime contract and remains covered by the existing compatibility tests.
 
 ## Read this first
 
@@ -116,40 +122,6 @@ PR; never resolve those cases by choosing a side automatically.
   or device behavior was proven without an explicit on-device verification.
 - Prioritize findings that warrant holding the merge. State the impacted path
   and the concrete failure mode.
-
-## Automated public issue triage
-
-New public issues may receive one clearly labeled **Hermes-Relay automated
-triage** reply. That first response may classify the report with existing
-type/area labels, point to related issues or current code/docs, ask for safe
-sanitized diagnostics, and flag the thread for maintainer review.
-
-GitHub attributes that reply to the repository-scoped
-`hermes-relay-triage[bot]` App, never to a maintainer's personal account.
-
-The automated lane may assign only the fixed maintainer account `Codename-11`
-as follow-up ownership; that assignment does not imply acceptance, priority,
-implementation, or a release commitment. It never closes, milestones,
-prioritizes, promises a fix/release/timeline, chooses another assignee, or
-continues replying after its first response. A related issue is not
-automatically a duplicate. Human maintainer comments and decisions remain
-authoritative; read the complete live thread before acting on an issue.
-
-## Automated public PR intake
-
-New external-contributor, non-draft pull requests may receive one clearly
-labeled **Hermes-Relay automated PR intake** reply from
-`hermes-relay-triage[bot]`. Owner-authored `Codename-11` PRs and bot PRs are
-dropped before model dispatch. For eligible PRs, the intake compares the live PR
-metadata/body and changed-path list with trusted `origin/dev` policy and
-`.github/pull_request_template.md` without checking out or executing contributor
-code. It may add genuine area labels plus `documentation`, `ci`, or
-`needs-maintainer-review` and point out missing intake evidence.
-
-The automated lane never approves, requests changes, merges, closes, assigns,
-requests reviewers, milestones, prioritizes, pushes commits, edits PR text,
-reruns workflows, applies `review-candidate`, or claims code correctness. Human
-maintainer review and CI remain authoritative.
 
 ## Public-repo writing hygiene
 

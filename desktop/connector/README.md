@@ -1,4 +1,4 @@
-# Windows background connector
+# Ayin-Relay Windows background connector
 
 The connector runs the desktop tool router without a GUI, tray or Gateway/TUI
 voice session. The authenticated download portal adds a fresh one-use invitation

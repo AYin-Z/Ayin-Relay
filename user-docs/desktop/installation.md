@@ -1,5 +1,10 @@
 # Installing the CLI <ExperimentalBadge />
 
+Ayin-Relay builds and updates use [this repository's release channel](https://github.com/AYin-Z/Ayin-Relay/releases).
+Until that channel publishes its first desktop release, use the [authenticated
+Windows connector](../../desktop/connector/README.md) or build from source.
+
+
 Prebuilt, self-contained CLI binaries ship for Windows x64, Linux x64/arm64, and macOS x64/arm64 — **no Node or Python required**. Windows also has an optional compact management UI.
 
 ## Prerequisites
@@ -12,7 +17,7 @@ If you'd rather install from source, see the [source install](#install-from-sour
 ## Windows — PowerShell one-liner
 
 ```powershell
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 ```
 
 ::: warning Review the bootstrap you trust
@@ -23,7 +28,7 @@ the preview installer is not yet code-signed. For an inspect-first flow:
 
 ```powershell
 $script = Join-Path $env:TEMP 'hermes-relay-install.ps1'
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 -OutFile $script
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 -OutFile $script
 Get-Content $script
 Get-Content $script -Raw | Invoke-Expression
 ```
@@ -56,7 +61,7 @@ For a CLI-only install, set the surface explicitly. This path downloads and veri
 
 ```powershell
 $env:HERMES_RELAY_INSTALL_SURFACE = 'cli'
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 ```
 
 Open a **new** terminal (PATH updates don't retroactively apply to in-process shells), then verify:
@@ -127,11 +132,11 @@ Code signing (EV cert) is a v1.0 milestone — the experimental phase doesn't ju
 ### Pin a specific version
 
 Replace `desktop-vMAJOR.MINOR.PATCH` with an exact tag from the
-[Desktop releases](https://github.com/Codename-11/hermes-relay/releases?q=desktop) page.
+[Desktop releases](https://github.com/AYin-Z/Ayin-Relay/releases?q=desktop) page.
 
 ```powershell
 $env:HERMES_RELAY_VERSION = 'desktop-vMAJOR.MINOR.PATCH'
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.ps1 | iex
 ```
 
 The resolver compares full SemVer including the prerelease tail, so an older alpha is correctly recognized as an upgrade.
@@ -143,7 +148,7 @@ For the CLI + UI bundle, use **Apps → Installed apps → Hermes-Relay CLI UI**
 ## macOS / Linux — curl one-liner
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh
 ```
 
 The script:
@@ -184,11 +189,11 @@ Apple Developer ID signing + notarization is a v1.0 milestone.
 ### Pin a specific version
 
 Replace `desktop-vMAJOR.MINOR.PATCH` with an exact tag from the
-[Desktop releases](https://github.com/Codename-11/hermes-relay/releases?q=desktop) page.
+[Desktop releases](https://github.com/AYin-Z/Ayin-Relay/releases?q=desktop) page.
 
 ```bash
 HERMES_RELAY_VERSION=desktop-vMAJOR.MINOR.PATCH \
-  curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/install.sh | sh
 ```
 
 ### Uninstall
@@ -224,7 +229,7 @@ If `hermes-relay update --check` says "Up to date" but you know there's a newer 
 For dev / contributors / custom builds:
 
 ```bash
-git clone https://github.com/Codename-11/hermes-relay
+git clone https://github.com/AYin-Z/Ayin-Relay
 cd hermes-relay/desktop
 npm install
 npm run build
@@ -260,11 +265,11 @@ Tiers combine: `--purge --service` runs both.
 
 ```powershell
 # Binary + user-PATH entry only (default)
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.ps1 | iex
 
 # Also purge session tokens — iex can't forward args, so set env first
 $env:HERMES_RELAY_UNINSTALL_PURGE = 1
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.ps1 | iex
 ```
 
 The script removes `%USERPROFILE%\.hermes\bin\hermes-relay.exe`, the `hermes.cmd` alias (if it points at our binary), strips that directory from your **user** PATH (not system — no admin needed), and removes the install dir if it's empty. If you installed the CLI + UI NSIS bundle, use its Apps/Start-menu uninstaller instead so shortcuts, registry entries, startup state, and both executables are removed together.
@@ -275,10 +280,10 @@ Open a new terminal afterward so shells pick up the PATH change.
 
 ```bash
 # Binary only (default)
-curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.sh | sh
+curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.sh | sh
 
 # Also purge session tokens
-curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.sh | sh -s -- --purge
+curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.sh | sh -s -- --purge
 ```
 
 `install.sh` never touches your shell rc, so neither does `uninstall.sh`. If you added `$HOME/.hermes/bin` to your PATH manually, remove that line from your rc yourself — the script prints a reminder.
@@ -289,12 +294,12 @@ Both scripts honor the same env var as the installers:
 
 ```bash
 HERMES_RELAY_INSTALL_DIR=/opt/hermes \
-  curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.sh | sh
+  curl -fsSL https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.sh | sh
 ```
 
 ```powershell
 $env:HERMES_RELAY_INSTALL_DIR = 'C:\tools\hermes\bin'
-irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/uninstall.ps1 | iex
+irm https://raw.githubusercontent.com/AYin-Z/Ayin-Relay/main/desktop/scripts/uninstall.ps1 | iex
 ```
 
 ## Verify
