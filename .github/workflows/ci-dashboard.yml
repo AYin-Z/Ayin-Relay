@@ -62,7 +62,6 @@ jobs:
           python -m unittest
           plugin.dashboard.test_plugin_api
           plugin.dashboard.test_git_api
-          plugin.dashboard.test_mobile_plugin_api
 
       - name: Verify dashboard bundle outputs
         run: |

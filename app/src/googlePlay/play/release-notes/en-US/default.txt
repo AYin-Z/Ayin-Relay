@@ -1,3 +1,0 @@
-v1.19.0 - Reliable chats, alerts, and voice
-
-Open larger conversations with safer history loading and keep compacted scrollback. Find unread background replies with clearer alerts and counts. Voice preserves complete replies, hands off the microphone reliably, and offers optional muting of English tool announcements. Sign-in survives temporary proxy failures, pairing lifetime controls are clearer, and your selected appearance stays applied after startup.

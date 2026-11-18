@@ -20,7 +20,7 @@ from unittest.mock import AsyncMock, patch
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from plugin.dashboard import git_api, mobile_plugin_api
+from plugin.dashboard import git_api
 from plugin import git_state
 
 
@@ -95,7 +95,6 @@ class GitWriteApiTests(unittest.TestCase):
             self.assertFalse(inspect.iscoroutinefunction(route), route.__name__)
         self.assertTrue(inspect.iscoroutinefunction(git_api.post_commit_message))
         self.assertTrue(inspect.iscoroutinefunction(git_api.post_commit_message_selected))
-        self.assertFalse(inspect.iscoroutinefunction(mobile_plugin_api.get_mobile_page))
 
     def test_stage_returns_fresh_status(self) -> None:
         (self.repo / "new.txt").write_text("x", encoding="utf-8")

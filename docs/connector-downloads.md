@@ -1,7 +1,6 @@
 # Authenticated connector downloads
 
-The optional download portal supplies the Windows background connector. Existing
-CLI pairing and upstream Gateway authentication remain independent. See the
+The authenticated Ayin-Relay download portal supplies the Windows node connector. See the
 [installer guide](../desktop/connector/README.md) for user consent, local backups
 and Windows startup behavior.
 
@@ -31,7 +30,7 @@ not automatically start recording or a voice conversation.
 
 ## Operator setup
 
-Install `hermes-relay[connector-portal]` and prepare a credential-free template
+Install the `connector-portal` extra and run `ayin-relay-download --config <path>` with the portal service configuration. Prepare a credential-free template
 with `scripts/package-desktop-connector.py`. Store the template outside the
 public web root. Create a JSON configuration owned by the service account,
 mode `0600`, with absolute template path and these values:

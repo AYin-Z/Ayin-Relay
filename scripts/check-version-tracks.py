@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
-"""Report and validate Hermes-Relay monorepo release tracks.
+"""Report and validate Ayin-Relay release tracks.
 
-The repo ships three independently versioned artifacts:
+The repo ships two independently versioned artifacts:
 
-- Android app: ``android-v*`` tags, source in ``gradle/libs.versions.toml``.
 - Plugin: ``server-v*`` tags, source in ``pyproject.toml``.
 - CLI+UI: ``desktop-v*`` tags, source in ``desktop/package.json``.
 
@@ -78,26 +77,6 @@ def _desktop_package_lock_versions() -> tuple[str, str]:
     if not isinstance(root_pkg, dict) or not isinstance(root_pkg.get("version"), str):
         raise ValueError('desktop/package-lock.json packages[""] has no version')
     return data["version"], root_pkg["version"]
-
-
-def _android_track(errors: list[str]) -> Track:
-    data = tomllib.loads(_read_text("gradle/libs.versions.toml"))
-    versions = data.get("versions")
-    if not isinstance(versions, dict):
-        raise ValueError("gradle/libs.versions.toml has no [versions] table")
-    version = str(versions.get("appVersionName", ""))
-    code = str(versions.get("appVersionCode", ""))
-    if not SEMVER_RE.match(version):
-        errors.append(f"android version is not SemVer: {version!r}")
-    if not code.isdigit():
-        errors.append(f"android versionCode is not numeric: {code!r}")
-    return Track(
-        name="android",
-        version=version,
-        source="gradle/libs.versions.toml",
-        tag=f"android-v{version}",
-        details=f"versionCode {code}",
-    )
 
 
 def _plugin_track(errors: list[str]) -> Track:
@@ -177,7 +156,6 @@ def _cli_track(errors: list[str]) -> Track:
 def collect_tracks() -> tuple[list[Track], list[str]]:
     errors: list[str] = []
     tracks = [
-        _android_track(errors),
         _plugin_track(errors),
         _cli_track(errors),
     ]

@@ -9,7 +9,7 @@ on:
   workflow_dispatch:
     inputs:
       release_tag:
-        description: "Published stable tag to reconcile (android-v*, server-v*, or desktop-v*)"
+        description: "Published stable tag to reconcile (server-v* or desktop-v*)"
         required: true
         type: string
 
@@ -48,7 +48,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          if [[ ! "$RELEASE_TAG" =~ ^(android|server|desktop)-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+          if [[ ! "$RELEASE_TAG" =~ ^(server|desktop)-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
             echo "::error::Release Backmerge accepts stable SemVer production tags only; got $RELEASE_TAG"
             exit 1
           fi

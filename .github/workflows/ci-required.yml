@@ -20,18 +20,6 @@ on:
         description: "Exact candidate commit to check"
         required: true
         type: string
-      android_preset:
-        description: "Optional Android-only compute lane"
-        required: false
-        default: auto
-        type: choice
-        options:
-          - auto
-          - focused
-          - lint
-          - assemble-debug
-          - release-smoke
-          - all-final
 
 permissions:
   actions: read
@@ -39,7 +27,7 @@ permissions:
   pull-requests: read
 
 concurrency:
-  group: ci-required-${{ github.event_name == 'workflow_dispatch' && format('{0}-{1}', inputs.head_sha, inputs.android_preset) || github.ref }}
+  group: ci-required-${{ github.event_name == 'workflow_dispatch' && inputs.head_sha || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -47,11 +35,9 @@ jobs:
     name: Detect affected surfaces
     runs-on: ubuntu-latest
     outputs:
-      android: ${{ steps.filter.outputs.android }}
       desktop: ${{ steps.filter.outputs.desktop }}
       plugin: ${{ steps.filter.outputs.plugin }}
       dashboard: ${{ steps.filter.outputs.dashboard }}
-      contract: ${{ steps.filter.outputs.contract }}
       docs: ${{ steps.filter.outputs.docs }}
       release_pr: ${{ steps.release.outputs.release_pr }}
       tree: ${{ steps.tree.outputs.tree }}
@@ -223,43 +209,25 @@ jobs:
             '.schemaVersion == 1 and .repository == $repository and .tree == $tree' \
             required-check-proof/required-checks.json
 
-  android:
-    needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.android == 'true' && needs.release-proof.outputs.reuse != 'true' && (github.event_name != 'workflow_dispatch' || inputs.android_preset == 'auto') }}
-    uses: ./.github/workflows/ci-android.yml
-
-  android_on_demand:
-    needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.release-proof.outputs.reuse != 'true' && github.event_name == 'workflow_dispatch' && inputs.android_preset != 'auto' }}
-    uses: ./.github/workflows/android-on-demand.yml
-    with:
-      head_sha: ${{ inputs.head_sha }}
-      preset: ${{ inputs.android_preset }}
-
   desktop:
     needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.desktop == 'true' && needs.release-proof.outputs.reuse != 'true' && (github.event_name != 'workflow_dispatch' || inputs.android_preset == 'auto') }}
+    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.desktop == 'true' && needs.release-proof.outputs.reuse != 'true' }}
     uses: ./.github/workflows/ci-desktop.yml
 
   plugin:
     needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.plugin == 'true' && needs.release-proof.outputs.reuse != 'true' && (github.event_name != 'workflow_dispatch' || inputs.android_preset == 'auto') }}
+    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.plugin == 'true' && needs.release-proof.outputs.reuse != 'true' }}
     uses: ./.github/workflows/ci-plugin.yml
 
   dashboard:
     needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.dashboard == 'true' && needs.release-proof.outputs.reuse != 'true' && (github.event_name != 'workflow_dispatch' || inputs.android_preset == 'auto') }}
+    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.dashboard == 'true' && needs.release-proof.outputs.reuse != 'true' }}
     uses: ./.github/workflows/ci-dashboard.yml
-
-  contract:
-    needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.contract == 'true' && needs.release-proof.outputs.reuse != 'true' && (github.event_name != 'workflow_dispatch' || inputs.android_preset == 'auto') }}
-    uses: ./.github/workflows/ci-contract.yml
 
   docs:
     name: Build public docs
     needs: [changes, release-proof]
-    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.docs == 'true' && needs.release-proof.outputs.reuse != 'true' && (github.event_name != 'workflow_dispatch' || inputs.android_preset == 'auto') }}
+    if: ${{ always() && needs.changes.result == 'success' && needs.changes.outputs.docs == 'true' && needs.release-proof.outputs.reuse != 'true' }}
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -275,31 +243,29 @@ jobs:
           cache: npm
           cache-dependency-path: user-docs/package-lock.json
 
+      - run: python3 ../scripts/check-privacy-policy.py
       - run: npm ci
       - run: npm run build
 
   guard:
     name: Required checks
     if: always()
-    needs: [changes, release-proof, android, android_on_demand, desktop, plugin, dashboard, contract, docs]
+    needs: [changes, release-proof, desktop, plugin, dashboard, docs]
     runs-on: ubuntu-latest
     env:
       CHANGES_RESULT: ${{ needs.changes.result }}
       RELEASE_PROOF_RESULT: ${{ needs.release-proof.result }}
       REUSED_REQUIRED_CHECKS: ${{ needs.release-proof.outputs.reuse }}
-      ANDROID_RESULT: ${{ needs.android.result }}
-      ANDROID_ON_DEMAND_RESULT: ${{ needs.android_on_demand.result }}
       DESKTOP_RESULT: ${{ needs.desktop.result }}
       PLUGIN_RESULT: ${{ needs.plugin.result }}
       DASHBOARD_RESULT: ${{ needs.dashboard.result }}
-      CONTRACT_RESULT: ${{ needs.contract.result }}
       DOCS_RESULT: ${{ needs.docs.result }}
     steps:
       - name: Require every selected check to pass
         shell: bash
         run: |
           failed=0
-          for check in CHANGES RELEASE_PROOF ANDROID ANDROID_ON_DEMAND DESKTOP PLUGIN DASHBOARD CONTRACT DOCS; do
+          for check in CHANGES RELEASE_PROOF DESKTOP PLUGIN DASHBOARD DOCS; do
             result_var="${check}_RESULT"
             result="${!result_var}"
             echo "$check: $result"

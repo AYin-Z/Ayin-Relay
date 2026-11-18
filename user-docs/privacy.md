@@ -1,14 +1,22 @@
 ---
 layout: doc
 title: Privacy Policy
-description: Privacy policy for the Ayin-Relay Android app
+description: Privacy policy for Windows nodes and historical Android releases
 ---
 
 # Privacy Policy
 
 **Ayin-Relay** · Effective date: September 12, 2026
 
-Ayin-Relay is a native Android app that connects to your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) host. This policy describes how the app handles your data.
+## Windows nodes
+
+The Windows connector stores its device identity, session authorization, capability settings and status locally. AyinServer keeps the node's enrollment and connection records. The download portal uses its configured identity provider to authenticate downloads.
+
+Authorized operations can send command results, files, screen captures and device data to AyinServer. The local capability policy and Windows permissions control which operations are available. The connector does not start recording when installed. The device owner can stop the connector locally and the server operator can revoke its authorization.
+
+## Historical Android releases
+
+The retired Android app connects to your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) host. The sections below describe data handling in those releases.
 
 ## Summary
 

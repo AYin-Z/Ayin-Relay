@@ -102,10 +102,6 @@ provides_tools:
   - desktop_adb_pull
   - desktop_adb_install
   - desktop_adb_logcat
-  - relay_plugin_draft
-  - relay_plugin_publish
-  - relay_plugin_remove
-  - relay_plugin_list
 provides_hooks:
   - on_session_start
   - pre_llm_call

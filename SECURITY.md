@@ -1,12 +1,6 @@
 # Security Policy
 
-Ayin-Relay can give a remote AI agent real control of a phone and, via the
-CLI, of a paired desktop. We take security reports seriously and welcome
-responsible disclosure.
-
-For the architecture, threat model, and the `googlePlay` vs. `sideload`
-capability boundary, see [`docs/security.md`](docs/security.md). This document
-covers **how to report a problem**.
+Ayin-Relay connects Windows nodes to AyinServer and routes authorized device operations. See the [architecture](docs/spec.md) for the enrollment and node access boundaries.
 
 ## Reporting a Vulnerability
 
@@ -24,9 +18,7 @@ Use one of these private channels instead:
 
 A good report lets us reproduce and assess impact quickly:
 
-- The affected surface — **Android app** (and which flavor, `googlePlay` or
-  `sideload`), **relay plugin / server**, **desktop CLI**, or the **docs site**.
-- Affected version(s) — app version/code, plugin version, or CLI version.
+- The affected surface and version, such as the download portal, Relay server or Windows connector.
 - A clear description of the issue and its security impact.
 - Step-by-step reproduction, a proof of concept, or a minimal example.
 - Any suggested remediation, if you have one.
@@ -51,7 +43,6 @@ contractual:
 
 **In scope** — vulnerabilities in code this project ships:
 
-- The Android app (`app/`) on either flavor.
 - The relay plugin and server (`plugin/`).
 - The desktop CLI (`desktop/`).
 - The pairing, auth, transport, media, and tool-routing surfaces.

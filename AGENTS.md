@@ -6,13 +6,13 @@ coding agent (Claude Code, Codex, Cursor, etc.).
 Ayin-Relay is maintained in `AYin-Z/Ayin-Relay`. `origin` is the standalone
 repository and `origin/dev` is the integration authority. The former Hermes-Relay
 repository is historical provenance. Do not sync from it or use it as a default
-release or update source. Compatibility with NousResearch/hermes-agent is a
-separate runtime contract and remains covered by the existing compatibility tests.
+release or update source. The Windows connector and AyinServer Relay service are the primary surfaces.
+Use the existing compatibility tests when changing retained adapters.
 
 ## Read this first
 
 Start with this file and the [runtime map in README](README.md#runtime-map).
-Use [the architecture](docs/spec.md) and [decision history](docs/decisions.md)
+Use [the architecture](docs/spec.md) and [decisions](docs/decisions.md)
 for the surface you are changing. Provider adapters
 such as **[CLAUDE.md](CLAUDE.md)** import this file instead of duplicating
 policy. They do not redefine the branch, release, hotfix, or verification
@@ -20,10 +20,6 @@ contract here and in `RELEASE.md`.
 
 - Release process → **[RELEASE.md](RELEASE.md)**
 - Contributor setup → **[CONTRIBUTING.md](CONTRIBUTING.md)**
-- Gateway/session/reconnect testing → **[docs/gateway-contract-testing.md](docs/gateway-contract-testing.md)**
-- Android local/cloud verification → **[docs/android-build-lane.md](docs/android-build-lane.md)**
-- Android emulator lanes → **[docs/android-emulator-testing.md](docs/android-emulator-testing.md)** — suggest the smallest relevant API 36 lanes; never run the full matrix automatically
-- `android_*` toolset + MCP → **[docs/mcp-tooling.md](docs/mcp-tooling.md)**
 - Follow-ups / deferred work / known gaps → **[docs/project/TODO.md](docs/project/TODO.md)** (the single home for "what's next" — never DEVLOG, never scattered code comments)
 
 ## Branch contract
@@ -36,7 +32,7 @@ contract here and in `RELEASE.md`.
 | Production tag source | The new `main` tip after an approved `dev` → `main` release PR, or after an approved hotfix PR to `main` |
 | Candidate tag source | An exact release-prepared and tested `dev` SHA; prerelease suffix required (`-alpha`, `-beta`, or `-rc.N`) |
 | Staging source | An exact tested `dev` SHA or release-candidate tag; staging is an environment, never a branch |
-| Production source | Immutable `android-v*`, `server-v*`, or `desktop-v*` tags, selected by surface |
+| Production source | Immutable `server-v*` or `desktop-v*` tags, selected by surface |
 | Hotfix base | The immutable production tag for the affected surface |
 | Back-merge target | `dev`; stable hotfixes reconcile automatically when the exact tested merge is conflict-free, otherwise through a PR |
 
@@ -70,43 +66,18 @@ PR; never resolve those cases by choosing a side automatically.
 
 ## Non-negotiables (the short list)
 
-- **Vanilla Hermes path = upstream-only.** The standard (no-plugin) connection
-  uses the upstream Dashboard/Gateway for chat, authentication, Manage, sessions,
-  and Vanilla Hermes voice. The API server is an explicit API-only/headless
-  compatibility surface; Relay adds optional extensions. A Gateway-owned
-  conversation never changes transport because Gateway auth or reachability
-  changes. This
-  path must work against unmodified upstream hermes-agent. Server-side needs go
-  through upstream PRs or the optional relay plugin, never fork patches.
-- **Verify endpoints against upstream** (`gateway/platforms/api_server.py` /
-  `tui_gateway/server.py` in hermes-agent) before assuming a route exists.
-- **Use the Gateway contract lab when its boundary changes.** Changes to
-  Gateway chat events, session identity/resume/activation, streaming completion,
-  queue ownership, reconnect/lifecycle recovery, or authoritative history must
-  reuse or extend the declarative fixture scenarios, run the relevant Android
-  instrumentation when rendered/lifecycle behavior is affected, and run the
-  scenario manifest through current-upstream conformance. Physical ADB
-  certification is required only when device/runtime behavior is claimed. All
-  of these lanes are on demand; do not add scheduled execution without explicit
-  approval.
+- **Windows nodes:** Keep authenticated enrollment, per-device revocation,
+  local consent and device targeting intact. Retain the deployed wire protocol,
+  state paths and service names until a verified migration can replace them.
+- **Compatibility:** Validate consumers before removing a retained adapter.
+  The current phone calendar path and Hermes desktop tool clients have a
+  compatibility contract.
 - **Conventional Commits + `main`/`dev` branching.** Normal branches start at
   current `origin/dev` and PR back to `dev`; merge commits/no-ff are the
   repository policy.
   Version bumps happen only on a release-prep branch targeting `dev`, and
   production tags are cut only from `main`.
-- **Android:** Jetpack Compose only (no XML), kotlinx.serialization (no Gson),
-  OkHttp (no Ktor), `wss://` only. While editing, use only the narrow local
-  compile or focused test needed for feedback, through `scripts/android-lane.ps1`
-  on Windows. Once an exact commit is already pushed, prefer the `Android
-  On-Demand` workflow for lint, the focused shards, both-flavor assemblies, and
-  release smoke; isolated cloud jobs may run concurrently. Do not push solely
-  to obtain cloud compute without push authorization, and do not duplicate a
-  preset already running for the same SHA. Full local verification remains
-  available through `scripts/dev.bat prepush` (or `./scripts/dev.sh prepush`)
-  when explicitly wanted or when cloud execution is unavailable.
-  Physical-device checks and APK installation remain separately owned local
-  evidence.
-- **Plugin (Python 3.11+):** aiohttp + asyncio (no threading), type hints
+- **Relay server (Python 3.11+):** aiohttp + asyncio (no threading), type hints
   everywhere, structured `logging` (no `print`). **Desktop CLI (Node ≥21):**
   zero runtime deps, strict TS + ES modules, ship compiled `dist/`. Contributor
   commands and the development loop live in `CONTRIBUTING.md`.
@@ -115,12 +86,12 @@ PR; never resolve those cases by choosing a side automatically.
 
 - Report only actionable correctness, security, compatibility, or release-risk
   findings; avoid stylistic preferences unless they violate a documented rule.
-- Treat the vanilla Hermes upstream boundary as release-critical. Flag any
-  default-path dependency on relay-only or fork-only server behavior.
+- Treat the node enrollment, device permissions, targeting and upgrade contracts
+  as release-critical.
 - Check that changes preserve public-repo writing hygiene and do not expose
   secrets, private infrastructure, or personal information.
-- Use the affected surface's CI result as evidence, but do not imply Android UI
-  or device behavior was proven without an explicit on-device verification.
+- Use CI evidence for the tested scope. Claims about Windows startup, UAC,
+  interactive desktop control or device access require Windows verification.
 - Prioritize findings that warrant holding the merge. State the impacted path
   and the concrete failure mode.
 

@@ -1,5 +1,5 @@
 name: Bug report
-description: Report a reproducible problem in Hermes-Relay.
+description: Report a reproducible problem in Ayin-Relay.
 title: "[Bug]: "
 labels: ["bug"]
 body:
@@ -14,8 +14,7 @@ body:
       label: Affected area
       description: Pick the closest surface.
       options:
-        - Android app
-        - Standard Hermes chat or voice
+        - Windows node connector
         - Relay plugin or server
         - Desktop CLI or tray
         - Dashboard plugin
@@ -56,9 +55,9 @@ body:
       label: Environment
       description: Include only the fields that apply.
       value: |
-        - Hermes-Relay version/tag:
-        - Install surface: Google Play / sideload APK / local build / plugin / desktop CLI
-        - Android device and OS:
+        - Ayin-Relay version/tag:
+        - Install surface: connector ZIP / local build / server / desktop CLI
+        - Windows version and architecture:
         - hermes-agent version or commit:
         - Connection mode: LAN / Tailscale / public TLS / other
     validations:

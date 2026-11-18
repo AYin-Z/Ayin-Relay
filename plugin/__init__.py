@@ -10,23 +10,20 @@ Run `hermes pair` to generate a QR code for pairing clients.
 
 import logging
 
-from .tools.android_tool import _SCHEMAS, _HANDLERS, _check_requirements
-from .tools.desktop_tool import (
-    _SCHEMAS as _DESKTOP_SCHEMAS,
-    _HANDLERS as _DESKTOP_HANDLERS,
-    _check_tool as _desktop_check_tool,
-)
-from .tools.relay_plugin_tool import (
-    _SCHEMAS as _RELAY_PLUGIN_SCHEMAS,
-    _HANDLERS as _RELAY_PLUGIN_HANDLERS,
-)
-
 logger = logging.getLogger(__name__)
 
 
 def register(ctx):
     """Called by hermes-agent plugin loader. Registers tools and CLI commands."""
-    # Register 14 android_* tools
+    # Import adapters only when the Hermes host invokes the plugin entry point.
+    from .tools.android_tool import _SCHEMAS, _HANDLERS, _check_requirements
+    from .tools.desktop_tool import (
+        _SCHEMAS as _DESKTOP_SCHEMAS,
+        _HANDLERS as _DESKTOP_HANDLERS,
+        _check_tool as _desktop_check_tool,
+    )
+
+    # Retain the tools consumed by existing phone integrations.
     for tool_name, schema in _SCHEMAS.items():
         ctx.register_tool(
             name=tool_name,
@@ -55,18 +52,6 @@ def register(ctx):
             schema=schema,
             handler=_DESKTOP_HANDLERS[tool_name],
             check_fn=_make_desktop_check(tool_name),
-        )
-
-    # Declarative Android pages live on the Hermes host and need no paired
-    # device or relay process. They remain available for authoring/inspection
-    # whenever this plugin is loaded.
-    for tool_name, schema in _RELAY_PLUGIN_SCHEMAS.items():
-        ctx.register_tool(
-            name=tool_name,
-            toolset="relay",
-            schema=schema,
-            handler=_RELAY_PLUGIN_HANDLERS[tool_name],
-            check_fn=lambda: True,
         )
 
     # Register the in-session `/relay` slash command (status/devices/pair) and

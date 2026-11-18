@@ -15,7 +15,7 @@ body:
       options:
         - README
         - User docs site
-        - Android setup
+        - Windows node setup
         - Relay plugin setup
         - Desktop CLI or tray setup
         - Release notes or changelog

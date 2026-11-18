@@ -213,7 +213,6 @@ def _validate_public_url(url: str) -> str:
 
 
 router = APIRouter()
-router.include_router(_plugin_module("dashboard.mobile_plugin_api").router)
 router.include_router(_plugin_module("dashboard.git_api").router)
 
 

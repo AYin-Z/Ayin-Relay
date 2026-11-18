@@ -5457,7 +5457,7 @@ def _create_ssl_context(config: RelayConfig) -> ssl.SSLContext | None:
 def main() -> None:
     """Parse CLI arguments and start the relay server."""
     parser = argparse.ArgumentParser(
-        description="Hermes-Relay Server — WSS server for the Android app"
+        description="Ayin-Relay server for Windows nodes"
     )
     parser.add_argument(
         "--host",

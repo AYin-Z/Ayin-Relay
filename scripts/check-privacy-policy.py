@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate the privacy policy shared by Ayin-Relay Android and its releases."""
+"""Validate the Windows and historical Android privacy policy."""
 
 from __future__ import annotations
 
@@ -15,6 +15,7 @@ POLICY_PATH = "user-docs/privacy.md"
 CANONICAL_URL = f"https://github.com/AYin-Z/Ayin-Relay/blob/main/{POLICY_PATH}"
 REQUIRED_MARKERS = (
     "Privacy Policy",
+    "Windows nodes",
     "Google Play Track",
     "Data Storage",
     "Network Connections",
@@ -38,11 +39,9 @@ def validate_content(label: str, content: str) -> None:
 
 def validate_repository() -> None:
     validate_content(POLICY_PATH, (ROOT / POLICY_PATH).read_text(encoding="utf-8"))
-    about = ROOT / "app/src/main/kotlin/com/hermesandroid/relay/ui/screens/AboutScreen.kt"
     website_link = ROOT / "website/public/privacy.html"
-    for path in (about, website_link):
-        if CANONICAL_URL not in path.read_text(encoding="utf-8"):
-            raise ValueError(f"{path.relative_to(ROOT)} must link to {CANONICAL_URL}")
+    if CANONICAL_URL not in website_link.read_text(encoding="utf-8"):
+        raise ValueError(f"{website_link.relative_to(ROOT)} must link to {CANONICAL_URL}")
 
 
 def validate_published_policy() -> None:

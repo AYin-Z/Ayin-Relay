@@ -1,5 +1,7 @@
 # Relay Server
 
+> This guide includes retained legacy protocol behavior. See the [Ayin-Relay architecture](spec.md) for the Windows node product.
+
 The relay server is a lightweight Python service that bridges the Hermes-Relay Android app to server-side features requiring persistent bidirectional communication.
 
 ## When You Need It

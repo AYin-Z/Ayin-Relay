@@ -117,13 +117,14 @@ jobs:
             plugin/tests/test_session_grants.py \
             plugin/tests/test_connector_authorization.py \
             plugin/tests/test_connector_portal.py \
+            scripts/tests/package_desktop_connector_test.py \
+            plugin/tests/test_profile_plugin_registration.py \
             plugin/tests/test_native_layout_imports.py \
             plugin/tests/test_profile_discovery.py \
             plugin/tests/test_profiles_updated_broadcast.py \
             plugin/tests/test_git_state.py \
             plugin/tests/test_git_state_write.py \
             plugin/tests/test_git_state_extras.py \
-            plugin/tests/test_mobile_plugin_store.py \
             plugin/tests/test_android_tool.py \
             plugin/tests/test_android_navigate.py \
             plugin/tests/test_phone_platform.py \
