@@ -7,7 +7,7 @@ import test from 'node:test'
 
 import { updateCommand } from '../src/commands/update.js'
 import { setStorePath } from '../src/remoteSessions.js'
-import { fetchRelayRelease, stageRelayRelease } from '../src/relayUpdate.js'
+import { fetchRelayRelease, pollWindowsRollout, stageRelayRelease } from '../src/relayUpdate.js'
 import { stageWindowsNodeRelease } from '../src/updater.js'
 
 const relay = 'wss://relay.example.test/ws'
@@ -141,4 +141,49 @@ test('the CLI checks with its saved desktop-only authorization and never stages 
   const [report] = last.arguments as unknown as [string]
   assert.equal(JSON.parse(report).staged, false)
   assert.deepEqual(JSON.parse(report).offer, offer)
+})
+
+test('a signed-node assignment uses its fixed origin and requires an explicit rollout ID', async t => {
+  const release = { ...offer, platform: 'win32', arch: 'x64' }
+  let message = release as object
+  const fetch = t.mock.method(globalThis, 'fetch', async () => new Response(JSON.stringify(message)))
+  await assert.rejects(fetchRelayRelease(relay, token, true), /rollout assignment ID/)
+  message = { ...release, rollout_id: '5'.repeat(32) }
+  assert.deepEqual(await fetchRelayRelease(relay, token, true), { ...offer, rolloutId: '5'.repeat(32) })
+  const [url] = fetch.mock.calls[1]!.arguments as unknown as [URL]
+  assert.equal(url.href, 'https://relay.example.test/desktop/rollout/assignment')
+})
+
+test('managed polling retries an unacknowledged receipt and does not reapply a settled assignment', async t => {
+  const root = await mkdtemp(join(tmpdir(), 'ayin-relay-node-receipt-'))
+  t.after(() => rm(root, { recursive: true, force: true }))
+  const target = join(root, 'node.exe')
+  const receipt = {
+    rollout_id: '5'.repeat(32), attempt_id: '6'.repeat(32), state: 'rolled_back',
+    version: offer.version, sha256, completed_at: 100
+  }
+  await writeFile(`${target}.rollout-result.json`, JSON.stringify({ ...receipt, unauthorized: 'ignored' }))
+  let postStatus = 425
+  const requests: string[] = []
+  t.mock.method(globalThis, 'fetch', async (url: URL, request: RequestInit) => {
+    requests.push(url.pathname)
+    if (url.pathname.endsWith('/receipt')) {
+      assert.equal(request.method, 'POST')
+      assert.equal(request.redirect, 'error')
+      assert.equal(new Headers(request.headers).get('authorization'), `Bearer ${token}`)
+      assert.deepEqual(JSON.parse(request.body as string), receipt)
+      return new Response(null, { status: postStatus })
+    }
+    assert.equal(url.pathname, '/desktop/rollout/assignment')
+    return new Response(JSON.stringify({ ...offer, platform: 'win32', arch: 'x64', rollout_id: receipt.rollout_id }))
+  })
+  const state: { receipt?: string } = {}
+  await assert.rejects(pollWindowsRollout(relay, token, state, target), /HTTP 425/)
+  assert.equal(state.receipt, undefined)
+  postStatus = 204
+  await pollWindowsRollout(relay, token, state, target)
+  await pollWindowsRollout(relay, token, state, target)
+  assert.equal(state.receipt, receipt.attempt_id)
+  assert.deepEqual(requests.map(path => path.split('/').at(-1)),
+    ['receipt', 'receipt', 'assignment', 'assignment'])
 })

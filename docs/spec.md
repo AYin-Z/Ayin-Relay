@@ -51,6 +51,16 @@ Only a device with a current desktop-only token and a UUID in the offer can down
 
 The launcher rechecks the signed package before stopping the daemon and records the trial before replacing the executable. It accepts the new version only after a live daemon for the approved release authenticates to the configured Relay server and reports a new heartbeat during a 35-second health check. A failed or interrupted trial restores the verified previous executable and keeps the device identity and authorization. A successful trial keeps the previous executable and a local result record. Installations with an earlier launcher need the updated signed installer before using this path.
 
+### Managed rollout
+
+The signed EXE installer includes consent for managed updates in its capability review. On a consenting node the scheduled launcher enables background update checks against the node's enrolled Relay origin. The node checks once per minute, stages only a newer release signed by its installed publisher, and applies it through the same launcher and rollback process. Existing ZIP installations can use the local update path.
+
+Set `RELAY_WINDOWS_ROLLOUT_STATE` to an absolute JSON file path in a directory controlled by the Relay service account. Relay creates the state file with owner-only permissions. Its activation and results persist through Relay restarts while the approved version, digest and target scope remain available.
+
+AyinServer first previews its intended nodes with `POST /desktop/rollout/preflight`. To start, call `POST /desktop/rollout/start` from the same direct loopback operator boundary with `version`, `sha256` and the subset of `device_ids` approved for that release. The response includes a rollout ID. Repeating the same request returns the same rollout. A different selection requires a newly approved release.
+
+Use `GET /desktop/rollout/status` to read per-node progress. An offline node can receive its assignment after it reconnects. A connected node with the approved version but without a result remains `awaiting_receipt`. Relay records `applied` once the node submits the local result and Relay observes the approved version on that node's authenticated connection. A `rolled_back` receipt records restoration by the node. Current connection state remains visible alongside the result.
+
 ## Target Windows release path
 
 | Capability | Acceptance condition |
@@ -62,7 +72,7 @@ The launcher rechecks the signed package before stopping the daemon and records 
 | Device operations | Exercise file transfer, commands, screen capture and input on each supported Windows build. Test attached devices separately. Verify remote revocation and local pause, including cases with an operation already running. |
 | Managed update | The operator selects a published, signed version and a set of devices. Each node verifies the publisher, platform, version and payload integrity against a trust root independent of the transport. A healthy reconnect confirms success. Failure rolls back to the previous validated build while preserving the node identity. A rollout status records success, failure, or a device still offline. |
 
-A production-signed installer, pre-sign-in operation, central update initiation and rollout reporting are target work. The launcher needs native Windows verification for switching and rollback. Completion requires a clean Windows installation test, restart and reconnect evidence, and one successful update plus an intentional rollback. [Open work](project/TODO.md)
+A production-signed installer and pre-sign-in operation are target work. Managed switching, result reporting and rollback still require native Windows verification. Completion requires a clean Windows installation test, restart and reconnect evidence, and one successful update plus an intentional rollback. [Open work](project/TODO.md)
 
 ## Compatibility
 

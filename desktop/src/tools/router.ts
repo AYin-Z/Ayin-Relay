@@ -133,6 +133,7 @@ export interface DesktopToolRouterOpts {
   handlers: Record<string, ToolHandler>
   /** Relay identity recorded with local audit events. */
   hostUrl?: string
+  managedUpdates?: boolean
   /** Optional override for the heartbeat `advertised_tools` list — default
    * is `Object.keys(handlers)`. Useful when some handlers are stubs that
    * should not be advertised. */
@@ -286,6 +287,7 @@ export class DesktopToolRouter {
   private readonly handlers: Record<string, ToolHandler>
   private readonly advertisedTools: string[]
   private readonly consentGranted: boolean
+  private readonly managedUpdates: boolean
   private readonly interactive: boolean
   private readonly hostUrl?: string
   private relay: RelayTransport | null = null
@@ -308,6 +310,7 @@ export class DesktopToolRouter {
     this.hostUrl = opts.hostUrl
     this.advertisedTools = opts.advertisedTools ?? Object.keys(opts.handlers)
     this.consentGranted = opts.consentGranted ?? false
+    this.managedUpdates = opts.managedUpdates === true
     // Explicit opts.interactive wins; otherwise detect from env/TTY. We
     // capture it once at construct time so a short shell session that
     // happens to get its stdin redirected mid-flight doesn't flip mode.
@@ -435,7 +438,7 @@ export class DesktopToolRouter {
         device_name: os.hostname()
       }
       if (process.platform === 'win32' && process.arch === 'x64') {
-        payload.node_update_protocol = 1
+        payload.node_update_protocol = this.managedUpdates ? 2 : 1
       }
       if (this.advertisedTools.some(name => name.startsWith('desktop_computer_'))) {
         const runtime = getComputerUseRuntimeSummary(this.controlAuthority)

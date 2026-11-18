@@ -69,7 +69,7 @@ def node_observation(
     now: float,
 ) -> dict[str, Any]:
     result: dict[str, Any] = {"device_id": device_id, "reported_version": None, "reported_started_at_ms": None,
-                              "last_reported_at": None}
+                              "last_reported_at": None, "node_update_protocol": None}
     if not registered:
         return {**result, "state": "unregistered"}
     if not connector:
@@ -103,6 +103,6 @@ def node_observation(
     if version > target:
         return {**result, "state": "reported_newer"}
     protocol = status.get("node_update_protocol")
-    if type(protocol) is not int or protocol != 1:
+    if type(protocol) is not int or protocol not in (1, 2):
         return {**result, "state": "update_protocol_unreported"}
-    return {**result, "state": "update_candidate"}
+    return {**result, "state": "update_candidate", "node_update_protocol": protocol}

@@ -1,5 +1,6 @@
 ﻿param(
     [switch]$AcceptTools,
+    [switch]$EnableManagedUpdates,
     # A separate profile root permits isolated native verification without using
     # the current user's device identity, credentials, daemon or startup task.
     [string]$HomeDirectory = $env:USERPROFILE
@@ -20,6 +21,7 @@ if (-not $validSetupVersion -or $setup.invite -notmatch '^[A-Fa-f0-9]{64}$' -or
     $uri.Scheme -ne 'wss' -or -not $uri.Host -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or
     $remote -match '[\x00-\x20\x7f"\\]') { throw '安装包的安全连接信息无效。' }
 $remote = $uri.AbsoluteUri.TrimEnd('/')
+if ($EnableManagedUpdates -and -not $hasProof) { throw '自动更新需要从签名安装器开始。' }
 $payload = Join-Path $stage 'hermes-relay.exe'
 try { $manifest = Get-Content -LiteralPath (Join-Path $stage 'manifest.json') -Raw -Encoding UTF8 | ConvertFrom-Json }
 catch { throw '无法读取安装文件校验信息，请重新下载。' }
@@ -30,11 +32,14 @@ if ($manifest.sha256 -notmatch '^[A-Fa-f0-9]{64}$' -or
 Write-Host "Ayin-Relay 后台连接器 → $($uri.Host)"
 Write-Host '授权此服务器读写文件、执行命令、读取屏幕和控制键鼠、使用 USB、麦克风和摄像头。'
 Write-Host '这些能力以后自动批准；Windows 自身的权限限制仍然生效。登录后自动运行，不启动 GUI 或语音会话。'
+if ($EnableManagedUpdates) {
+    Write-Host '同时允许自动安装由此服务器分配、与当前程序发布者签名一致的新版本。连接检查失败时恢复上一版。'
+}
 if (-not $AcceptTools) {
     $canPrompt = $false
     try { $canPrompt = [Environment]::UserInteractive -and -not [Console]::IsInputRedirected } catch {}
     if (-not $canPrompt) { throw '非交互安装需要明确传入 -AcceptTools，以批准上述全部能力。' }
-    if ((Read-Host '确认这是你的服务器并批准上述全部能力？输入 yes') -cne 'yes') { throw '已取消安装。' }
+    if ((Read-Host '确认这是你的服务器并批准以上设置？输入 yes') -cne 'yes') { throw '已取消安装。' }
 }
 $profileRoot = [IO.Path]::GetFullPath($HomeDirectory)
 if (-not [IO.Path]::IsPathRooted($HomeDirectory) -or $profileRoot -match '[\x00-\x1f"]') { throw '用户目录无效。' }
@@ -195,10 +200,12 @@ function Clear-ConnectorRolloutTrial([string]$Executable,[string]$Trial,[string]
     [IO.Directory]::Delete($Trial,$true)
 }
 function Complete-ConnectorRollout([string]$Executable,[string]$Trial,[object]$Plan,[string]$State) {
-    Write-ConnectorRolloutJson ($Executable+'.rollout-result.json') @{
+    $receipt = @{
         attempt_id=$Plan.attempt_id; version=$Plan.version; sha256=$Plan.sha256
         state=$State; completed_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
     }
+    if ($Plan.rollout_id) { $receipt.rollout_id = $Plan.rollout_id }
+    Write-ConnectorRolloutJson ($Executable+'.rollout-result.json') $receipt
     Clear-ConnectorRolloutTrial $Executable $Trial $State
 }
 function Restore-ConnectorRollout([string]$Executable,[string]$StatusPath,[string]$Trial,[object]$Plan) {
@@ -250,7 +257,8 @@ function Invoke-ConnectorRollout([string]$Executable,[string]$StatusPath,[string
         $plan = Read-ConnectorRolloutJson $journal
         if ($plan.attempt_id -cnotmatch '\A[0-9a-f]{32}\z' -or $plan.sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
             $plan.previous_sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or $plan.publisher_sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
-            $plan.version -cnotmatch '\A[0-9A-Za-z.-]{5,128}\z') { throw '连接器更新记录无效。' }
+            $plan.version -cnotmatch '\A[0-9A-Za-z.-]{5,128}\z' -or
+            ($plan.rollout_id -and $plan.rollout_id -cnotmatch '\A[0-9a-f]{32}\z')) { throw '连接器更新记录无效。' }
         if ([IO.File]::Exists($receiptPath)) {
             $receipt = Read-ConnectorRolloutJson $receiptPath
             if ($receipt.attempt_id -ceq $plan.attempt_id -and
@@ -276,12 +284,14 @@ function Invoke-ConnectorRollout([string]$Executable,[string]$StatusPath,[string
     $approval = $verified.StandardOutput | ConvertFrom-Json
     if ($approval.version -cnotmatch '\A[0-9A-Za-z.-]{5,128}\z' -or
         $approval.sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
+        ($approval.rollout_id -and $approval.rollout_id -cnotmatch '\A[0-9a-f]{32}\z') -or
         (Get-ConnectorRolloutDigest $candidate) -cne $approval.sha256) {
         [IO.Directory]::Delete($trial,$true)
         return
     }
     $plan = @{
         attempt_id=[Guid]::NewGuid().ToString('N'); version=$approval.version; sha256=$approval.sha256
+        rollout_id=$approval.rollout_id
         previous_sha256=(Get-ConnectorRolloutDigest $Executable)
         publisher_sha256=(Get-ConnectorRolloutPublisher $Executable)
     }
@@ -548,6 +558,7 @@ $env:HOME = __PROFILE__
 $env:HERMES_RELAY_HOST_ACCESS_POLICY_PATH = __POLICY__
 $env:HERMES_RELAY_TOKEN = $null
 $env:HERMES_RELAY_URL = $null
+$env:AYIN_RELAY_MANAGED_UPDATES = __MANAGED__
 $cli = __CLI__
 $lock = $null
 try {
@@ -561,6 +572,8 @@ try {
     if ($result.ExitCode -ne 0) { exit 1 }
 } catch { exit 1 } finally { if ($lock) { $lock.Dispose() } }
 '@
+    $managedFlag = if ($EnableManagedUpdates) { "'1'" } else { '$null' }
+    $wrapper = $wrapper.Replace('__MANAGED__',$managedFlag)
     $wrapper = $wrapper.Replace('__PROFILE__',(Quote-Literal $profileRoot)).Replace('__POLICY__',(Quote-Literal $env:HERMES_RELAY_HOST_ACCESS_POLICY_PATH)).Replace('__CLI__',(Quote-Literal $cli)).Replace('__LOCK__',(Quote-Literal (Join-Path $homeDir 'connector-install.lock'))).Replace('__REMOTE__',(Quote-Literal $remote)).Replace('__READY__',(Quote-Literal $readyPath)).Replace('__STATUS__',(Quote-Literal (Join-Path $homeDir 'daemon-status.json')))
     foreach ($name in @('Get-ConnectorProcessSnapshot','Get-ConnectorDaemonState','Invoke-ConnectorHiddenCli',
         'Get-ConnectorRolloutDigest','Get-ConnectorRolloutPublisher','Stop-ConnectorRolloutDaemon',

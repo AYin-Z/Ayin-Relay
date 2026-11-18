@@ -154,6 +154,8 @@ invitation is an example, not a usable credential:
 
 ## Update from AyinServer
 
+The signed EXE setup includes managed updates in its local consent review. After setup, AyinServer can activate a signed update for this device. The background node checks for the assignment, verifies the publisher and stages the update for the launcher. The node sends back its update or rollback result.
+
 On a signed Windows x64 installation, run `hermes-relay update --from-relay --check` to see whether AyinServer selected this device for a newer version. Run `hermes-relay update --from-relay` to approve staging that release. Staging verifies the file and its publisher locally. The current connector launcher applies the update on its next scheduled run, checks that the new version connects to AyinServer and restores the previous version if the check fails. If your connector predates this launcher, run the updated signed installer first.
 
 If the installed executable has no valid publisher signature, migrate with the signed connector installer first.

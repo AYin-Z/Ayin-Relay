@@ -80,6 +80,7 @@ class RelayConfig:
     # secret-manager side-channel).
     session_persistence_path: str | None = None
     windows_release_offer: str | None = None
+    windows_rollout_state: str | None = None
 
     # Media registry (inbound media for screenshot / attachment tools)
     media_max_size_mb: int = 100
@@ -183,6 +184,7 @@ class RelayConfig:
             ),
             log_level=os.getenv("RELAY_LOG_LEVEL", cls.log_level),
             windows_release_offer=os.getenv("RELAY_WINDOWS_RELEASE_OFFER") or None,
+            windows_rollout_state=os.getenv("RELAY_WINDOWS_ROLLOUT_STATE") or None,
             terminal_shell=os.getenv("RELAY_TERMINAL_SHELL") or None,
             secure_proxy_enabled=os.getenv(
                 "RELAY_SECURE_LINK_ENABLED",

@@ -361,10 +361,12 @@ export async function stageWindowsNodeRelease(
   version: string,
   digest: string,
   download: (path: string) => Promise<void>,
-  verify = verifyWindowsUpdate
+  verify = verifyWindowsUpdate,
+  rolloutId?: string
 ): Promise<DownloadResult> {
   if (!target.toLowerCase().endsWith('.exe') || !isWindowsNodeVersion(version) ||
-      compareVersions(version, VERSION) <= 0 || !/^[0-9a-f]{64}$/.test(digest)) {
+      compareVersions(version, VERSION) <= 0 || !/^[0-9a-f]{64}$/.test(digest) ||
+      (rolloutId !== undefined && !/^[0-9a-f]{32}$/.test(rolloutId))) {
     throw new Error('A newer Windows node release is required')
   }
   const directory = await mkdtemp(join(dirname(target), '.hermes-relay-download-'))
@@ -377,7 +379,7 @@ export async function stageWindowsNodeRelease(
     await verify(target, candidate, version)
     // Publish both files together. A running supervisor can claim the
     // complete directory without racing the download or the approval record.
-    await writeFile(`${candidate}.json`, JSON.stringify({ version, sha256: digest }), { mode: 0o600 })
+    await writeFile(`${candidate}.json`, JSON.stringify({ version, sha256: digest, rollout_id: rolloutId }), { mode: 0o600 })
     const staged = `${target}.rollout-stage`
     await rename(directory, staged)
     return { installedPath: join(staged, 'candidate.exe'), needsRestart: true, sha256: digest }
@@ -478,7 +480,7 @@ export async function finalizePendingUpdate(): Promise<void> {
 /** Reconfirm the exact approved release after restart without executing its binary. */
 export async function verifyPendingWindowsNode(
   current: string, candidate: string, installedVersion: string, verify = verifyWindowsUpdate
-): Promise<{ version: string; sha256: string }> {
+): Promise<{ version: string; sha256: string; rollout_id?: string }> {
   const recordPath = `${candidate}.json`
   if ((await stat(recordPath)).size > 1024) throw new Error('Invalid pending Windows release record')
   const approved: unknown = JSON.parse(await readFile(recordPath, 'utf8'))
@@ -492,6 +494,12 @@ export async function verifyPendingWindowsNode(
     throw new Error('Pending Windows update bytes differ from the approved release')
   }
   await verify(current, candidate, approved.version)
+  if ('rollout_id' in approved) {
+    if (typeof approved.rollout_id !== 'string' || !/^[0-9a-f]{32}$/.test(approved.rollout_id)) {
+      throw new Error('Invalid Windows rollout assignment ID')
+    }
+    return { version: approved.version, sha256: approved.sha256, rollout_id: approved.rollout_id }
+  }
   return { version: approved.version, sha256: approved.sha256 }
 }
 

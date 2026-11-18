@@ -71,8 +71,9 @@ from .channels.proactive import ProactiveChannel, ProactiveError
 from .channels.terminal import TerminalHandler
 from .channels.tui import TuiHandler
 from .config import RelayConfig
-from .desktop_rollout import node_observation, parse_preflight
+from .desktop_rollout import VersionKey, node_observation, parse_preflight, version_key
 from .node_release import NODE_FILENAME, PublishedNodeRelease, load_published_node_release
+from .rollout_state import RolloutReceipt, RolloutStore
 from .secure_proxy import (
     SECURE_LINK_CAPABILITIES,
     SECURE_LINK_DESCRIPTION,
@@ -1501,10 +1502,22 @@ async def handle_desktop_rollout_preflight(request: web.Request) -> web.Response
     except (ValueError, UnicodeError) as error:
         raise web.HTTPBadRequest(text="invalid rollout version or installation IDs") from error
 
+    now = time.time()
+    nodes = _observe_rollout_targets(server, device_ids, target, now)
+    return web.json_response({"version": version, "observed_at": now, "nodes": nodes},
+                             headers={"Cache-Control": "no-store"})
+
+
+def _observe_rollout_targets(
+    server: RelayServer, device_ids: list[str] | tuple[str, ...], target: VersionKey, now: float,
+) -> list[dict[str, Any]]:
     selected = set(device_ids)
     sessions = [session for session in server.sessions.list_sessions() if session.device_id in selected]
     registered = {session.device_id for session in sessions}
-    connector_tokens = {session.token: session.device_id for session in sessions if session.desktop_only}
+    connector_tokens = {
+        session.token: session.device_id for session in sessions
+        if session.desktop_only and not session.channel_is_expired("desktop")
+    }
     connector_ids = set(connector_tokens.values())
     observations = {device_id: [] for device_id in device_ids}
     for socket, token in server._clients.items():
@@ -1513,37 +1526,43 @@ async def handle_desktop_rollout_preflight(request: web.Request) -> web.Response
             continue
         view = server.desktop.session_for(socket)
         observations[device_id].append(view if view and view.authenticated_device_id == device_id else None)
-
-    now = time.time()
-    nodes = [
+    return [
         node_observation(device_id, device_id in registered, device_id in connector_ids,
                          observations[device_id], target, now)
         for device_id in device_ids
     ]
-    return web.json_response({"version": version, "observed_at": now, "nodes": nodes},
-                             headers={"Cache-Control": "no-store"})
 
 
 _WINDOWS_RELEASE_KEY = web.AppKey("windows_node_release", PublishedNodeRelease)
 _RELEASE_NO_STORE = {"Cache-Control": "no-store"}
+_WINDOWS_ROLLOUT_KEY = web.AppKey("windows_node_rollout", RolloutStore)
 
 
 async def _windows_release_context(app: web.Application) -> AsyncIterator[None]:
-    config = app["server"].config.windows_release_offer
-    if config is None:
+    config = app["server"].config
+    if config.windows_release_offer is None:
         yield
         return
     with tempfile.TemporaryDirectory(prefix="ayin-relay-node-release-") as directory:
         try:
-            app[_WINDOWS_RELEASE_KEY] = await asyncio.to_thread(
-                load_published_node_release, Path(config), Path(directory),
+            release = await asyncio.to_thread(
+                load_published_node_release, Path(config.windows_release_offer), Path(directory),
             )
         except (OSError, ValueError, TypeError):
             logger.error("Windows node release offer unavailable after verification")
+        else:
+            app[_WINDOWS_RELEASE_KEY] = release
+            if config.windows_rollout_state is not None:
+                try:
+                    app[_WINDOWS_ROLLOUT_KEY] = await asyncio.to_thread(
+                        RolloutStore, Path(config.windows_rollout_state), release,
+                    )
+                except (OSError, ValueError, TypeError):
+                    logger.error("Managed Windows rollout state unavailable")
         yield
 
 
-def _approved_release_for_device(request: web.Request) -> PublishedNodeRelease:
+def _approved_release_for_device(request: web.Request) -> tuple[PublishedNodeRelease, str]:
     release = request.app.get(_WINDOWS_RELEASE_KEY)
     if release is None:
         raise web.HTTPNotFound(text="no active Windows release offer", headers=_RELEASE_NO_STORE)
@@ -1560,19 +1579,23 @@ def _approved_release_for_device(request: web.Request) -> PublishedNodeRelease:
     if (not session.desktop_only or session.channel_is_expired("desktop")
             or session.device_id not in release.device_ids):
         raise web.HTTPForbidden(text="release not assigned to this connector", headers=_RELEASE_NO_STORE)
-    return release
+    return release, session.device_id
+
+
+def _windows_release_metadata(release: PublishedNodeRelease) -> dict[str, Any]:
+    return {
+        "version": release.version, "sha256": release.sha256, "size": release.size,
+        "platform": "win32", "arch": "x64",
+    }
 
 
 async def handle_windows_release_offer(request: web.Request) -> web.Response:
-    release = _approved_release_for_device(request)
-    return web.json_response({
-        "version": release.version, "sha256": release.sha256, "size": release.size,
-        "platform": "win32", "arch": "x64",
-    }, headers=_RELEASE_NO_STORE)
+    release, _ = _approved_release_for_device(request)
+    return web.json_response(_windows_release_metadata(release), headers=_RELEASE_NO_STORE)
 
 
 async def handle_windows_release_download(request: web.Request) -> web.StreamResponse:
-    release = _approved_release_for_device(request)
+    release, _ = _approved_release_for_device(request)
     if (request.match_info["version"], request.match_info["sha256"]) != (release.version, release.sha256):
         raise web.HTTPNotFound(text="release version and digest are not assigned", headers=_RELEASE_NO_STORE)
     if release.active_downloads >= 2:
@@ -1592,6 +1615,132 @@ async def handle_windows_release_download(request: web.Request) -> web.StreamRes
             return response
     finally:
         release.active_downloads -= 1
+
+
+def _operator_rollout(request: web.Request) -> tuple[RelayServer, PublishedNodeRelease, RolloutStore]:
+    server = request.app["server"]
+    _require_local_operator(request, server.config.port)
+    release, store = request.app.get(_WINDOWS_RELEASE_KEY), request.app.get(_WINDOWS_ROLLOUT_KEY)
+    if release is None or store is None:
+        raise web.HTTPServiceUnavailable(text="managed Windows rollout unavailable", headers=_RELEASE_NO_STORE)
+    return server, release, store
+
+
+async def _read_rollout_json(request: web.Request, maximum: int) -> dict[str, Any]:
+    if request.content_type != "application/json" or not 0 < (request.content_length or 0) <= maximum:
+        raise web.HTTPBadRequest(text="a bounded JSON request is required", headers=_RELEASE_NO_STORE)
+    try:
+        raw = await request.read()
+        if not 0 < len(raw) <= maximum:
+            raise ValueError("rollout JSON exceeds its limit")
+        value = json.loads(raw)
+        if not isinstance(value, dict):
+            raise ValueError("expected JSON object")
+        return value
+    except (ValueError, UnicodeError) as error:
+        raise web.HTTPBadRequest(text="invalid rollout JSON", headers=_RELEASE_NO_STORE) from error
+
+
+async def handle_windows_rollout_start(request: web.Request) -> web.Response:
+    server, release, store = _operator_rollout(request)
+    value = await _read_rollout_json(request, 8192)
+    try:
+        digest = value.pop("sha256", None)
+        version, _, selection = parse_preflight(value)
+    except ValueError as error:
+        raise web.HTTPBadRequest(text="invalid rollout selection", headers=_RELEASE_NO_STORE) from error
+    if (version, digest) != (release.version, release.sha256) or not set(selection) <= release.device_ids:
+        raise web.HTTPConflict(text="release or selection differs from approved configuration", headers=_RELEASE_NO_STORE)
+    if store.current is None:
+        authorized = {
+            session.device_id for session in server.sessions.list_sessions()
+            if session.desktop_only and not session.channel_is_expired("desktop")
+        }
+        if not set(selection) <= authorized:
+            raise web.HTTPConflict(text="every installation must have an active connector grant", headers=_RELEASE_NO_STORE)
+    try:
+        rollout = await store.start(release, tuple(selection))
+    except ValueError as error:
+        raise web.HTTPConflict(text="rollout already has another selection", headers=_RELEASE_NO_STORE) from error
+    except OSError as error:
+        logger.error("Unable to persist managed Windows rollout activation")
+        raise web.HTTPServiceUnavailable(text="failed to persist rollout", headers=_RELEASE_NO_STORE) from error
+    return web.json_response({
+        "rollout_id": rollout.rollout_id, "version": rollout.version,
+        "sha256": rollout.sha256, "device_ids": rollout.device_ids,
+    }, headers=_RELEASE_NO_STORE)
+
+
+async def handle_windows_rollout_status(request: web.Request) -> web.Response:
+    server, _, store = _operator_rollout(request)
+    rollout = store.current
+    if rollout is None:
+        raise web.HTTPNotFound(text="no active managed rollout", headers=_RELEASE_NO_STORE)
+    now = time.time()
+    target = version_key(rollout.version)
+    assert target is not None
+    nodes = _observe_rollout_targets(server, rollout.device_ids, target, now)
+    for node in nodes:
+        receipt = rollout.receipts.get(node["device_id"])
+        node["observation"] = node["state"]
+        if receipt is not None:
+            node["state"] = receipt.state
+            node["receipt"] = receipt.json()
+        elif node["state"] == "update_candidate":
+            node["state"] = "waiting" if node["node_update_protocol"] == 2 else "local_confirmation_required"
+        elif node["state"] == "reported_at_target":
+            node["state"] = "awaiting_receipt"
+    return web.json_response({
+        "rollout_id": rollout.rollout_id, "version": rollout.version, "sha256": rollout.sha256,
+        "observed_at": now, "nodes": nodes,
+    }, headers=_RELEASE_NO_STORE)
+
+
+async def handle_windows_rollout_assignment(request: web.Request) -> web.Response:
+    release, device_id = _approved_release_for_device(request)
+    store = request.app.get(_WINDOWS_ROLLOUT_KEY)
+    rollout = store.current if store else None
+    if rollout is not None and device_id in rollout.device_ids and device_id not in rollout.receipts:
+        target = version_key(rollout.version)
+        assert target is not None
+        [node] = _observe_rollout_targets(request.app["server"], [device_id], target, time.time())
+        if node["state"] == "update_candidate" and node["node_update_protocol"] == 2:
+            return web.json_response({
+                **_windows_release_metadata(release), "rollout_id": rollout.rollout_id,
+            }, headers=_RELEASE_NO_STORE)
+    raise web.HTTPNotFound(text="no eligible managed assignment", headers=_RELEASE_NO_STORE)
+
+
+async def handle_windows_rollout_receipt(request: web.Request) -> web.Response:
+    payload = await _read_rollout_json(request, 1024)
+    _, device_id = _approved_release_for_device(request)
+    store = request.app.get(_WINDOWS_ROLLOUT_KEY)
+    rollout = store.current if store else None
+    if store is None or rollout is None or device_id not in rollout.device_ids:
+        raise web.HTTPNotFound(text="no active managed rollout", headers=_RELEASE_NO_STORE)
+    try:
+        receipt = RolloutReceipt.parse(payload)
+    except ValueError as error:
+        raise web.HTTPBadRequest(text="invalid rollout receipt", headers=_RELEASE_NO_STORE) from error
+    if not rollout.matches(receipt):
+        raise web.HTTPNotFound(text="receipt has no active assignment", headers=_RELEASE_NO_STORE)
+    if rollout.receipts.get(device_id) is None and receipt.state == "applied":
+        target = version_key(rollout.version)
+        assert target is not None
+        [node] = _observe_rollout_targets(request.app["server"], [device_id], target, time.time())
+        if node["state"] != "reported_at_target":
+            return web.Response(status=425, text="waiting for authenticated target version",
+                                headers={**_RELEASE_NO_STORE, "Retry-After": "30"})
+    try:
+        await store.record(device_id, receipt)
+    except LookupError as error:
+        raise web.HTTPNotFound(text="receipt has no active assignment", headers=_RELEASE_NO_STORE) from error
+    except ValueError as error:
+        raise web.HTTPConflict(text="conflicting rollout receipt", headers=_RELEASE_NO_STORE) from error
+    except OSError as error:
+        logger.error("Unable to persist managed Windows rollout receipt")
+        raise web.HTTPServiceUnavailable(text="failed to persist rollout receipt", headers=_RELEASE_NO_STORE) from error
+    return web.Response(status=204, headers=_RELEASE_NO_STORE)
 
 
 async def handle_desktop_dispatch(request: web.Request) -> web.Response:
@@ -5211,6 +5360,10 @@ def create_app(config: RelayConfig) -> web.Application:
     # wildcard route or aiohttp swallows it.
     app.router.add_get("/desktop/health", handle_desktop_health)
     app.router.add_post("/desktop/rollout/preflight", handle_desktop_rollout_preflight)
+    app.router.add_post("/desktop/rollout/start", handle_windows_rollout_start)
+    app.router.add_get("/desktop/rollout/status", handle_windows_rollout_status, allow_head=False)
+    app.router.add_get("/desktop/rollout/assignment", handle_windows_rollout_assignment, allow_head=False)
+    app.router.add_post("/desktop/rollout/receipt", handle_windows_rollout_receipt)
     app.router.add_get("/desktop/rollout/release", handle_windows_release_offer, allow_head=False)
     app.router.add_get("/desktop/rollout/releases/{version}/{sha256}", handle_windows_release_download, allow_head=False)
     app.router.add_post("/desktop/{tool_name}", handle_desktop_dispatch)

@@ -18,6 +18,7 @@ $root = Join-Path ([IO.Path]::GetTempPath()) ('relay-rollout-'+[Guid]::NewGuid()
 $script:remote = 'wss://relay.example.test/ws'
 $script:expectedVersion = '1.2.0'
 $script:publisher = 'a'*64
+$script:assignment = '5'*32
 function Get-ConnectorRolloutPublisher([string]$Path) { return $script:publisher }
 function Stop-ConnectorRolloutDaemon([string]$StatusPath,[string]$Executable) {
     $script:stops++
@@ -40,7 +41,7 @@ function Invoke-ConnectorHiddenCli([string]$Executable,[string]$Arguments,[int]$
     if ($Arguments -eq 'update --verify-rollout --json') {
         Assert-Case ([IO.File]::ReadAllText($Executable) -eq 'old') 'Verification must be done by the old program'
         if ($script:mode -eq 'bad_signature') { return @{ExitCode=1} }
-        return @{ExitCode=0;StandardOutput=(ConvertTo-Json -Compress @{version=$script:expectedVersion;sha256=$script:digest})}
+        return @{ExitCode=0;StandardOutput=(ConvertTo-Json -Compress @{version=$script:expectedVersion;sha256=$script:digest;rollout_id=$script:assignment})}
     }
     Assert-Case ([IO.File]::ReadAllText($Executable) -eq 'new') 'The launcher must start the replacement, not the old image'
     if ($script:mode -eq 'start_failure') { return @{ExitCode=1} }
@@ -79,6 +80,7 @@ function Interrupt-Fixture {
 try {
     New-Fixture 'success'
     Invoke-ConnectorRollout $executable $status $remote
+    Assert-Case ((Read-ConnectorRolloutJson $receipt).rollout_id -eq $assignment) 'The final result must carry the assigned rollout ID'
     Assert-Case ((Read-ConnectorRolloutJson $receipt).state -eq 'applied') 'Authenticated target version should commit'
     Assert-Case ([IO.File]::ReadAllText($previous) -eq 'old') 'Successful rollout must retain its recoverable previous version'
     Assert-Case ($stops -eq 1 -and $calls.Count -eq 2 -and -not [IO.Directory]::Exists($trial)) 'A successful trial must run once'

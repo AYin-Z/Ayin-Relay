@@ -57,7 +57,8 @@ import { effectiveHostAccessMode, effectiveHostCapabilityPolicies, getHostAccess
 import { theme as makeTheme } from '../lib/theme.js'
 import { printUsage, type UsageSpec } from '../lib/usage.js'
 import { resolveFirstRunUrl } from '../relayUrlPrompt.js'
-import { getSession } from '../remoteSessions.js'
+import { getSession, isPermanentConnectorSession } from '../remoteSessions.js'
+import { startWindowsRolloutPolling } from '../relayUpdate.js'
 import { assertDesktopCompatibleRelayUrl, probeCandidatesByPriority, secureFirstCandidates } from '../pairingQr.js'
 import {
   advertisedDesktopTools,
@@ -896,6 +897,10 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
   // Observable status file — `hermes-relay daemon --status` reads this.
   const nowSec = () => Math.floor(Date.now() / 1000)
   const identity = currentProcessIdentity()
+  const managedUpdates = process.platform === 'win32' && process.arch === 'x64' &&
+    identity.privilege === 'user' && process.env.AYIN_RELAY_MANAGED_UPDATES === '1' &&
+    configuredUrl.startsWith('wss://') && isPermanentConnectorSession(configuredSession) &&
+    configuredSession.token === token && !configuredSession.certPinSha256
   const computerUseEnabled = toolsEnabled && (
     accessMode === 'full_access' || shouldAdvertiseComputerUse(args.flags)
   )
@@ -1074,6 +1079,7 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
         consentGranted: true,
         interactive,
         hostUrl: url,
+        managedUpdates,
         handlers: desktopHandlers({ computerUse: computerUseEnabled, capabilities, usb, adb }),
         advertisedTools: [...advertisedTools]
       })
@@ -1097,6 +1103,9 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
   // with the pid liveness check).
   const statusHeartbeat = setInterval(() => updateStatus({}), STATUS_HEARTBEAT_MS)
   statusHeartbeat.unref?.()
+  const rolloutPoll = managedUpdates && router
+    ? startWindowsRolloutPolling(configuredUrl, token, message => log.warn({ event: 'rollout_poll_failed', message }))
+    : undefined
 
   // ── Voice server ──────────────────────────────────────────────────
   // Hosts the same loopback HTTP voice surface that `voice mode` starts
@@ -1147,6 +1156,7 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
   const cleanup = async () => {
     log.info({ event: 'shutdown' })
     clearInterval(statusHeartbeat)
+    clearInterval(rolloutPoll)
     clearInterval(grantControlInterval)
     restoreGrantListener()
     restoreControlLifecycleListener()
