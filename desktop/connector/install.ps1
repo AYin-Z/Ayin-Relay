@@ -12,7 +12,11 @@ try {
     $remote = [string]$setup.relay_url
     $uri = [Uri]$remote
 } catch { throw '无法读取安装包的安全连接信息，请重新下载。' }
-if ($setup.version -ne 1 -or $setup.invite -notmatch '^[A-Fa-f0-9]{64}$' -or
+$hasProof = $null -ne $setup.PSObject.Properties['enrollment_verifier']
+$validSetupVersion = ($setup.version -eq 1 -and -not $hasProof) -or
+    ($setup.version -eq 2 -and $hasProof -and $setup.enrollment_verifier -is [string] -and
+    $setup.enrollment_verifier -cmatch '\A[0-9a-f]{64}\z')
+if (-not $validSetupVersion -or $setup.invite -notmatch '^[A-Fa-f0-9]{64}$' -or
     $uri.Scheme -ne 'wss' -or -not $uri.Host -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or
     $remote -match '[\x00-\x20\x7f"\\]') { throw '安装包的安全连接信息无效。' }
 $remote = $uri.AbsoluteUri.TrimEnd('/')

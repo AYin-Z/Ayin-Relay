@@ -26,13 +26,18 @@ import stat
 import tempfile
 import time
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 import zipfile
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, web
 import jwt
+from multidict import MultiMapping
 
-from .relay.auth import DESKTOP_INVITE_TTL_SECONDS
+from .relay.auth import (
+    BROWSER_ENROLLMENT_TTL_SECONDS,
+    DESKTOP_INVITE_TTL_SECONDS,
+    is_enrollment_digest,
+)
 
 logger = logging.getLogger(__name__)
 _CHUNK_SIZE = 256 * 1024
@@ -68,6 +73,7 @@ class PortalConfig:
     max_concurrent_downloads: int = 2
     downloads_per_window: int = 3
     window_seconds: int = 600
+    browser_enrollment_enabled: bool = False
 
     def __post_init__(self) -> None:
         origin, relay = urlsplit(self.public_origin), urlsplit(self.relay_url)
@@ -94,6 +100,8 @@ class PortalConfig:
             raise ValueError("base_zip_path must be absolute")
         if not re.fullmatch(r"/[a-zA-Z0-9/_-]+", self.prefix) or self.prefix.endswith("/"):
             raise ValueError("prefix must be a path without a trailing slash")
+        if type(self.browser_enrollment_enabled) is not bool:
+            raise ValueError("browser_enrollment_enabled must be a boolean")
         if (not 1 <= self.max_concurrent_downloads <= 8 or not 1 <= self.downloads_per_window <= 20
                 or not 10 <= self.window_seconds <= 3600):
             raise ValueError("download limits outside supported range")
@@ -312,6 +320,26 @@ def create_app(config: PortalConfig) -> web.Application:
     async def identity(request: web.Request) -> str:
         return await request.app[verifier_key].verify(request.headers.get("CF-Access-Jwt-Assertion", ""))
 
+    async def mint_invitation(
+        session: ClientSession, challenge: str | None = None,
+    ) -> tuple[str, int]:
+        # Browser authentication headers never reach the local operator endpoint.
+        body = {"enrollment_challenge": challenge} if challenge is not None else None
+        started = int(time.time())
+        async with session.post(config.invite_url, allow_redirects=False, json=body) as reply:
+            if reply.status != 200:
+                raise ValueError("local Relay refused invitation")
+            grant = json.loads(await _read_limited(reply, 8192))
+        if not isinstance(grant, dict):
+            raise ValueError("invalid local Relay response")
+        invite, lifetime = grant.get("invite"), grant.get("expires_in")
+        max_lifetime = BROWSER_ENROLLMENT_TTL_SECONDS if challenge is not None else DESKTOP_INVITE_TTL_SECONDS
+        if (not isinstance(invite, str) or not _INVITE.fullmatch(invite)
+                or type(lifetime) is not int or not 0 < lifetime <= max_lifetime
+                or grant.get("enrollment_challenge") != challenge):
+            raise ValueError("invalid local Relay invitation")
+        return invite, started + lifetime
+
     async def landing(request: web.Request) -> web.Response:
         target = html.escape(f"{config.prefix}/private/", quote=True)
         return _page("Ayin-Relay 桌面连接器", f'''<h1>Ayin-Relay 桌面连接器</h1><p>让你的电脑在后台持续连接 Ayin-Relay，登录后自动启动，断线自动重连。</p>
@@ -341,25 +369,12 @@ def create_app(config: PortalConfig) -> web.Application:
         path: Path | None = None
         response: web.StreamResponse | None = None
         try:
-            session = request.app[session_key]
-            # Never forward browser headers to the local operator endpoint.
-            started = int(time.time())
-            async with session.post(config.invite_url, allow_redirects=False) as reply:
-                if reply.status != 200:
-                    raise ValueError("local Relay refused invitation")
-                raw = await _read_limited(reply, 8192)
-                grant = json.loads(raw)
-            if not isinstance(grant, dict):
-                raise ValueError("invalid local Relay response")
-            invite, lifetime = grant.get("invite"), grant.get("expires_in")
-            if (not isinstance(invite, str) or not _INVITE.fullmatch(invite)
-                    or type(lifetime) is not int or not 0 < lifetime <= DESKTOP_INVITE_TTL_SECONDS):
-                raise ValueError("invalid local Relay invitation")
+            invite, expires_at = await mint_invitation(request.app[session_key])
             descriptor, filename = tempfile.mkstemp(suffix=".zip", dir=request.app[temp_key])
             os.close(descriptor)
             path = Path(filename)
             await build_download_archive(config.base_zip_path, path, relay_url=config.relay_url,
-                                         invite=invite, expires_at=started + lifetime)
+                                         invite=invite, expires_at=expires_at)
             response = web.StreamResponse(headers={**_SECURITY_HEADERS,
                 "Content-Type": "application/zip",
                 "Content-Disposition": 'attachment; filename="Ayin-Relay-Connector-Windows.zip"',
@@ -383,12 +398,64 @@ def create_app(config: PortalConfig) -> web.Application:
             finally:
                 limiter.active -= 1
 
+    def enrollment_parameters(values: MultiMapping[str | web.FileField]) -> tuple[str, str, str]:
+        port, state, challenge = (values.get(name) for name in ("port", "state", "challenge"))
+        if (not isinstance(port, str) or not re.fullmatch(r"[1-9][0-9]{3,4}", port)
+                or not 1024 <= int(port) <= 65535
+                or not isinstance(state, str) or not re.fullmatch(r"[0-9a-f]{32}", state)
+                or not is_enrollment_digest(challenge)):
+            raise web.HTTPBadRequest(text="无效的安装请求。请从 Windows 安装程序重新打开。")
+        if any(len(values.getall(name)) != 1 for name in ("port", "state", "challenge")):
+            raise web.HTTPBadRequest(text="安装参数重复。")
+        return port, state, challenge
+
+    def enrollment_scope(subject: str, port: str, state: str, challenge: str) -> str:
+        return f"{subject}\nenroll:{port}:{state}:{challenge}"
+
+    async def enrollment_page(request: web.Request) -> web.Response:
+        subject = await identity(request)
+        port, state, challenge = enrollment_parameters(request.query)
+        token = csrf.issue(enrollment_scope(subject, port, state, challenge))
+        target = f"{config.prefix}/private/enroll"
+        return _page("注册 Windows 节点", f"""<h1>注册这台 Windows 电脑</h1>
+<p>请核对安装程序上显示的确认标识 <strong>{state[:8].upper()}</strong>。只有标识一致时才继续。</p>
+<p>确认后会把一次性注册请求交回这台电脑的安装程序。</p>
+<form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}">
+<input type="hidden" name="port" value="{port}"><input type="hidden" name="state" value="{state}">
+<input type="hidden" name="challenge" value="{challenge}"><button type="submit">确认注册</button></form>""")
+
+    async def approve_enrollment(request: web.Request) -> web.Response:
+        subject = await identity(request)
+        if (request.headers.get("Origin") != config.public_origin
+                or request.content_type != "application/x-www-form-urlencoded"):
+            raise web.HTTPForbidden(text="请从设备注册页确认。")
+        form = await request.post()
+        port, state, challenge = enrollment_parameters(form)
+        token = form.get("csrf")
+        if not isinstance(token, str) or not csrf.valid(token, enrollment_scope(subject, port, state, challenge)):
+            raise web.HTTPForbidden(text="设备注册请求已失效。")
+        limiter.acquire(subject)
+        try:
+            invite, expires_at = await mint_invitation(request.app[session_key], challenge)
+        except (ClientError, TimeoutError, ValueError, OSError):
+            logger.warning("Browser enrollment invitation could not be prepared")
+            raise web.HTTPServiceUnavailable(text="暂时无法注册，请稍后重试。") from None
+        finally:
+            limiter.active -= 1
+        # The redirect is constructed from a validated numeric port, never from
+        # a browser-supplied URL. The original verifier stays with the installer.
+        query = urlencode({"state": state, "invite": invite, "expires_at": expires_at, "relay_url": config.relay_url})
+        return web.HTTPSeeOther(location=f"http://127.0.0.1:{port}/ayin-relay/enrollment?{query}")
+
     app.cleanup_ctx.append(resources)
     app.router.add_get(config.prefix + "/", landing)
     app.router.add_get(config.prefix + "/private/", private_page, name="connector_private")
     app.router.add_get(config.prefix + "/private", private_page)
     app.router.add_get(config.prefix + "/private/download", private_page)
     app.router.add_post(config.prefix + "/private/download", download)
+    if config.browser_enrollment_enabled:
+        app.router.add_get(config.prefix + "/private/enroll", enrollment_page)
+        app.router.add_post(config.prefix + "/private/enroll", approve_enrollment)
     return app
 
 

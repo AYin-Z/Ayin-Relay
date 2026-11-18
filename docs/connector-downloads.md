@@ -28,6 +28,14 @@ input control, USB, microphone and camera capabilities, then saves the existing
 connector runs with `--no-voice`; permitting microphone and camera tools does
 not automatically start recording or a voice conversation.
 
+## Browser registration for a fixed installer
+
+The browser registration path keeps authenticated confirmation independent of the signed EXE. The installer holds a random verifier and sends its SHA-256 challenge when opening the portal. The approval is bound to the logged-in identity, the challenge and the callback parameters. The user compares the confirmation identifier on the installer and the browser.
+
+The portal returns the five-minute invitation to the installer's local listener. Relay accepts the invitation only with the original verifier. A bad proof leaves the invitation available to the original installer. Successful redemption consumes it and creates the usual revocable desktop-only authorization.
+
+Browser registration is disabled by default during migration. This server-side path requires a compatible installer that verifies the callback state, trusts the expected portal and Relay origins and keeps the verifier local. The public installer and the production download switch have separate Windows acceptance requirements.
+
 ## Operator setup
 
 Install the `connector-portal` extra and run `ayin-relay-download --config <path>` with the portal service configuration. Prepare a credential-free template

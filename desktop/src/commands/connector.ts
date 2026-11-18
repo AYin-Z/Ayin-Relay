@@ -8,23 +8,35 @@ import { isPidAlive, readDaemonStatus } from '../lib/daemonStatus.js'
 import { getSession, saveSession, type RemoteSessionRecord } from '../remoteSessions.js'
 import { RelayTransport } from '../transport/RelayTransport.js'
 
-export interface ConnectorSetup {
-  version: 1
+interface ConnectorInvitation {
   relay_url: string
   invite: string
   expires_at: number
 }
 
+export type ConnectorSetup = ConnectorInvitation & (
+  { version: 1; enrollment_verifier?: never } |
+  { version: 2; enrollment_verifier: string }
+)
+
 export function validateConnectorSetup(value: unknown): ConnectorSetup {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Invalid setup file')
   const setup = value as Record<string, unknown>
   const url = typeof setup.relay_url === 'string' ? canonicalRelayUrl(setup.relay_url) : null
-  if (setup.version !== 1 || !url || !url.startsWith('wss://') ||
+  if (!url || !url.startsWith('wss://') ||
       typeof setup.invite !== 'string' || !/^[A-Fa-f0-9]{64}$/.test(setup.invite) ||
       typeof setup.expires_at !== 'number' || !Number.isFinite(setup.expires_at) || setup.expires_at <= 0) {
     throw new Error('Invalid secure connector setup file')
   }
-  return { version: 1, relay_url: url, invite: setup.invite, expires_at: setup.expires_at }
+  const invitation = { relay_url: url, invite: setup.invite, expires_at: setup.expires_at }
+  if (setup.version === 1 && !('enrollment_verifier' in setup)) {
+    return { version: 1, ...invitation }
+  }
+  if (setup.version === 2 && typeof setup.enrollment_verifier === 'string' &&
+      setup.enrollment_verifier.length === 64 && /^[0-9a-f]{64}$/.test(setup.enrollment_verifier)) {
+    return { version: 2, ...invitation, enrollment_verifier: setup.enrollment_verifier }
+  }
+  throw new Error('Invalid connector enrollment proof')
 }
 
 export function isPermanentConnectorSession(session: RemoteSessionRecord | null): session is RemoteSessionRecord {
@@ -64,6 +76,7 @@ export async function connectorCommand(args: ParsedArgs): Promise<number> {
     const identity = desktopRelayIdentity()
     const createTransport = (sessionToken?: string) => new RelayTransport({
       url: setup.relay_url, sessionToken, pairingCode: sessionToken ? undefined : setup.invite,
+      enrollmentVerifier: sessionToken ? undefined : setup.enrollment_verifier,
       attachTui: false, emitWorkspaceEnvelope: false, ...identity
     })
     relay = createTransport(token)

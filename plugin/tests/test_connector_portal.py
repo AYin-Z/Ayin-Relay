@@ -11,6 +11,7 @@ import secrets
 import tempfile
 import time
 import unittest
+from urllib.parse import parse_qs, urlsplit
 from unittest.mock import patch
 import zipfile
 
@@ -61,6 +62,13 @@ class ConfigTests(unittest.TestCase):
                             {"invite_url": "http://127.0.0.1:8767/connector/invite?x=1"}):
                 with self.assertRaises(ValueError):
                     config(root / "template.zip", **changes)
+
+    def test_existing_portal_configuration_leaves_browser_enrollment_disabled(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "template.zip"
+            template(path)
+            app = create_app(config(path))
+            self.assertTrue(all(route.resource.canonical != "/relay/private/enroll" for route in app.router.routes()))
 
     def test_csrf_is_bound_to_identity_expiry_and_service_instance(self) -> None:
         csrf = CSRF()
@@ -118,6 +126,8 @@ class ArchiveTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
+    browser_enrollment_enabled = True
+
     @classmethod
     def setUpClass(cls) -> None:
         cls.private_key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -130,8 +140,9 @@ class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
         self.addCleanup(self.directory.cleanup)
         self.base = Path(self.directory.name) / "base.zip"
         template(self.base)
-        self.config = config(self.base)
+        self.config = config(self.base, browser_enrollment_enabled=self.browser_enrollment_enabled)
         self.invites: list[str] = []
+        self.challenges: list[str] = []
         self.local_headers: list[dict[str, str]] = []
         self.jwks_calls = 0
         self.jwks_status = 200
@@ -162,8 +173,12 @@ class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
                 await self.invite_wait.wait()
             invite = secrets.token_hex(32)
             self.invites.append(invite)
-            return web.json_response(self.invite_document if self.invite_document is not None
-                                     else {"invite": invite, "expires_in": 3600})
+            grant: object = {"invite": invite, "expires_in": 3600}
+            if request.can_read_body:
+                challenge = (await request.json())["enrollment_challenge"]
+                self.challenges.append(challenge)
+                grant = {"invite": invite, "expires_in": 300, "enrollment_challenge": challenge}
+            return web.json_response(self.invite_document if self.invite_document is not None else grant)
 
         upstream = web.Application()
         upstream.router.add_get("/certs", certs)
@@ -206,6 +221,53 @@ class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("no-store", response.headers["Cache-Control"])
         self.assertEqual(self.invites, [])
         self.assertEqual(self.jwks_calls, 0)
+
+    async def test_browser_approval_binds_identity_port_state_and_challenge(self) -> None:
+        path = "/relay/private/enroll"
+        setup = {"port": "49172", "state": "a" * 32, "challenge": "f" * 64}
+        headers = {"CF-Access-Jwt-Assertion": self.token(), "Origin": self.config.public_origin}
+        self.assertEqual((await self.client.get(path, params=setup)).status, 401)
+        self.assertEqual((await self.client.get(path, headers=headers,
+                                               params={**setup, "port": "49172@example.com"})).status, 400)
+        for port in ("65536", "22", "49172#dev", "０１２３４"):
+            response = await self.client.get(path, headers=headers, params={**setup, "port": port})
+            self.assertEqual(response.status, 400)
+        response = await self.client.get(path, headers=headers, params=setup)
+        self.assertEqual(response.status, 200)
+        markup = await response.text()
+        self.assertIn("AAAAAAAA", markup)
+        csrf_match = re.search(r'name="csrf" value="([^"]+)"', markup)
+        self.assertIsNotNone(csrf_match)
+        data = {**setup, "csrf": csrf_match[1]}
+        for changed in ({"port": "49173"}, {"state": "b" * 32}, {"challenge": "c" * 64}):
+            response = await self.client.post(path, headers=headers, data={**data, **changed})
+            self.assertEqual(response.status, 403)
+        self.assertEqual((await self.client.post(path, data=data, headers={
+            **headers, "Origin": "https://other.example.test"})).status, 403)
+        self.assertEqual((await self.client.post(path, data=data, headers={
+            **headers, "CF-Access-Jwt-Assertion": self.token(sub="other-user")})).status, 403)
+        self.assertEqual(self.invites, [])
+
+        response = await self.client.post(path, headers=headers, data=data, allow_redirects=False)
+        self.assertEqual(response.status, 303)
+        self.assertIn("no-store", response.headers["Cache-Control"])
+        callback = urlsplit(response.headers["Location"])
+        self.assertEqual((callback.scheme, callback.hostname, callback.port, callback.path),
+                         ("http", "127.0.0.1", 49172, "/ayin-relay/enrollment"))
+        query = parse_qs(callback.query)
+        self.assertEqual(query["state"], [setup["state"]])
+        self.assertEqual(query["invite"], self.invites)
+        self.assertEqual(query["relay_url"], [self.config.relay_url])
+        self.assertNotIn("enrollment_verifier", query)
+        self.assertEqual(self.challenges, [setup["challenge"]])
+        local = {key.lower() for key in self.local_headers[0]}
+        self.assertTrue({"cf-access-jwt-assertion", "origin", "cookie"}.isdisjoint(local))
+
+        self.invite_document = {"invite": "a" * 64, "expires_in": 300}
+        response = await self.client.post(path, headers=headers, data=data, allow_redirects=False)
+        self.assertEqual(response.status, 503)
+        self.assertNotIn("Location", response.headers)
+        self.assertEqual(list(self.temp_path.iterdir()), [])
 
     async def test_real_jwks_requires_signature_issuer_audience_expiry_subject_and_type(self) -> None:
         self.split_jwks = True

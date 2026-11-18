@@ -135,6 +135,8 @@ export interface RelayTransportConfig {
   url: string
   /** One-time pairing code. Mutually exclusive with sessionToken. */
   pairingCode?: string
+  /** Optional proof for browser-authorized Windows enrollment. */
+  enrollmentVerifier?: string
   /** Previously-minted session token for reconnection. */
   sessionToken?: string
   /** Pin supplied by the operator-reviewed pairing invite before a session
@@ -577,6 +579,7 @@ export class RelayTransport extends EventEmitter implements Transport {
       payload.session_token = this.sessionToken
     } else if (this.cfg.pairingCode) {
       payload.pairing_code = this.cfg.pairingCode
+      if (this.cfg.enrollmentVerifier) payload.enrollment_verifier = this.cfg.enrollmentVerifier
     } else {
       const msg = 'RelayTransport: neither pairingCode nor sessionToken provided'
       this.authFailReason = msg

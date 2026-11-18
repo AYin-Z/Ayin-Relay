@@ -52,7 +52,9 @@ from pathlib import Path
 
 from . import __version__
 from .auth import (
+    BROWSER_ENROLLMENT_TTL_SECONDS,
     DESKTOP_INVITE_TTL_SECONDS,
+    is_enrollment_digest,
     _PAIRING_CODE_TTL,
     PairingManager,
     RateLimiter,
@@ -1109,8 +1111,11 @@ async def handle_connector_invite(request: web.Request) -> web.Response:
             body = await request.json()
         except (ValueError, UnicodeError) as exc:
             raise web.HTTPBadRequest(text="Invalid operator invitation request") from exc
-        if not isinstance(body, dict) or set(body) - {"device_id"}:
+        if not isinstance(body, dict) or set(body) - {"device_id", "enrollment_challenge"}:
             raise web.HTTPBadRequest(text="Invalid operator invitation request")
+    challenge = body.get("enrollment_challenge")
+    if "enrollment_challenge" in body and (not is_enrollment_digest(challenge) or "device_id" in body):
+        raise web.HTTPBadRequest(text="Invalid browser enrollment challenge")
     replacement_id: str | None = None
     if "device_id" in body:
         replacement_id = body["device_id"]
@@ -1123,9 +1128,13 @@ async def handle_connector_invite(request: web.Request) -> web.Response:
             server.sessions.has_trusted_device(replacement_id)
         ):
             raise web.HTTPNotFound(text="Installation identity is not paired")
-    code = server.pairing.generate_desktop_invite(operator_replace_device_id=replacement_id)
-    return web.json_response({"invite": code, "expires_in": DESKTOP_INVITE_TTL_SECONDS},
-                             headers={"Cache-Control": "no-store"})
+    code = server.pairing.generate_desktop_invite(
+        operator_replace_device_id=replacement_id, enrollment_challenge=challenge,
+    )
+    grant = {"invite": code, "expires_in": DESKTOP_INVITE_TTL_SECONDS}
+    if challenge is not None:
+        grant.update(expires_in=BROWSER_ENROLLMENT_TTL_SECONDS, enrollment_challenge=challenge)
+    return web.json_response(grant, headers={"Cache-Control": "no-store"})
 
 
 async def handle_sessions_list(request: web.Request) -> web.Response:
@@ -4670,7 +4679,9 @@ async def _authenticate(
 
     # Try pairing code
     if pairing_code:
-        metadata = server.pairing.consume_code(pairing_code)
+        metadata = server.pairing.consume_code(
+            pairing_code, enrollment_verifier=payload.get("enrollment_verifier"),
+        )
         if metadata is not None:
             # Thread host-side metadata (from a loopback-only pairing flow)
             # through to the session. Missing metadata uses bounded library

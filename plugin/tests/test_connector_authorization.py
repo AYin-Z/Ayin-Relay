@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import math
 import json
+from hashlib import sha256
 import asyncio
 import uuid
 import tempfile
@@ -154,6 +155,39 @@ class ConnectorWireTests(AioHTTPTestCase):
         invitation = await reply.json()
         self.assertEqual(invitation['expires_in'], 3600)
         self.assertRegex(invitation['invite'], r'^[0-9A-F]{64}$')
+
+    async def test_browser_invite_requires_proof_without_consuming_on_failure(self) -> None:
+        verifier = "a" * 64
+        challenge = sha256(verifier.encode("ascii")).hexdigest()
+        local = {"Host": "127.0.0.1:8767"}
+        for body in ({"enrollment_challenge": None}, {"enrollment_challenge": "x" * 64},
+                     {"enrollment_challenge": challenge, "device_id": str(uuid.uuid4())}):
+            reply = await self.client.post("/connector/invite", headers=local, json=body)
+            self.assertEqual(reply.status, 400)
+
+        reply = await self.client.post("/connector/invite", headers=local,
+                                       json={"enrollment_challenge": challenge})
+        self.assertEqual(reply.status, 200)
+        grant = await reply.json()
+        self.assertEqual(grant["expires_in"], 300)
+        self.assertEqual(grant["enrollment_challenge"], challenge)
+        invite = grant["invite"]
+
+        async def authenticate(proof: object) -> dict:
+            async with self.client.ws_connect("/ws") as ws:
+                await ws.send_json({"channel": "system", "type": "auth", "payload": {
+                    "pairing_code": invite, "enrollment_verifier": proof,
+                    "device_id": str(uuid.uuid4()), "client_surface": "desktop",
+                }})
+                return await ws.receive_json(timeout=2)
+
+        for bad in (None, {"verifier": verifier}, "b" * 64):
+            self.assertEqual((await authenticate(bad))["type"], "auth.fail")
+        accepted = await authenticate(verifier)
+        self.assertEqual(accepted["type"], "auth.ok")
+        self.assertTrue(accepted["payload"]["desktop_only"])
+        self.assertEqual(accepted["payload"]["grants"], {"desktop": None})
+        self.assertEqual((await authenticate(verifier))["type"], "auth.fail")
 
     async def test_actual_desktop_session_cannot_open_other_channels_or_manage_sessions(self) -> None:
         ws, token = await self.authorize()
