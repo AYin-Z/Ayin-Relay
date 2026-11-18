@@ -20,7 +20,7 @@ Ayin task layer --> AyinServer Relay <-- authenticated WSS -- Windows node
 
 The private portal serves a ZIP with a Windows executable, installation scripts and a manifest. The install flow gives the user one capability review. It uses a per-user Windows Scheduled Task that starts at sign-in and recovers the process. The task runs with limited rights. A legacy task migration can require a Windows elevation prompt. The sign-in screen and UAC secure desktop remain Windows-controlled.
 
-The [installer guide](../desktop/connector/README.md) details pause, restart, local recovery and migration. The desktop CLI has a local update command. AyinServer can preview selected installations and offer a verified update package for them. The local update command can verify and stage the offered package. The executable swap runs during Windows startup of the node CLI.
+The [installer guide](../desktop/connector/README.md) details pause, restart, local recovery and migration. The desktop CLI has a local update command. AyinServer can preview selected installations and offer a verified update package for them. The local update command can verify and stage the offered package. The installed Windows launcher claims the staged package, then switches versions while the daemon is stopped.
 
 ### Rollout preflight
 
@@ -49,6 +49,8 @@ Use the signed Windows x64 **node executable** as the artifact. For a timestampe
 
 Only a device with a current desktop-only token and a UUID in the offer can download that exact version and SHA-256. Route the offer and download through HTTPS, with a same-host loopback connection from the TLS proxy to Relay. On Windows x64, use `hermes-relay update --from-relay --check` to check the offer and `hermes-relay update --from-relay` to stage it after local confirmation. The updater uses the stored connector session on its certificate-validated Relay origin and rejects redirects. Windows independently verifies the installed and downloaded publisher, the approved version and the file digest before the package can replace the active executable.
 
+The launcher rechecks the signed package before stopping the daemon and records the trial before replacing the executable. It accepts the new version only after a live daemon for the approved release authenticates to the configured Relay server and reports a new heartbeat during a 35-second health check. A failed or interrupted trial restores the verified previous executable and keeps the device identity and authorization. A successful trial keeps the previous executable and a local result record. Installations with an earlier launcher need the updated signed installer before using this path.
+
 ## Target Windows release path
 
 | Capability | Acceptance condition |
@@ -60,7 +62,7 @@ Only a device with a current desktop-only token and a UUID in the offer can down
 | Device operations | Exercise file transfer, commands, screen capture and input on each supported Windows build. Test attached devices separately. Verify remote revocation and local pause, including cases with an operation already running. |
 | Managed update | The operator selects a published, signed version and a set of devices. Each node verifies the publisher, platform, version and payload integrity against a trust root independent of the transport. A healthy reconnect confirms success. Failure rolls back to the previous validated build while preserving the node identity. A rollout status records success, failure, or a device still offline. |
 
-A production-signed installer, pre-sign-in operation and automatic update application and rollback are target work. Completion requires a clean Windows installation test, restart and reconnect evidence, and one successful update plus an intentional rollback. [Open work](project/TODO.md)
+A production-signed installer, pre-sign-in operation, central update initiation and rollout reporting are target work. The launcher needs native Windows verification for switching and rollback. Completion requires a clean Windows installation test, restart and reconnect evidence, and one successful update plus an intentional rollback. [Open work](project/TODO.md)
 
 ## Compatibility
 

@@ -79,6 +79,7 @@ const BOOLEAN_FLAGS = new Set([
   'no-open',
   'check',
   'from-relay',
+  'verify-rollout',
   'installer',
   'download-only',
   'force',
@@ -283,9 +284,9 @@ export async function main(argv = process.argv): Promise<number> {
   const args = parseArgs(argv)
   // Apply staged Windows updates on normal invocations. Inspecting or staging
   // an offer must not change the active executable.
-  if (args.command !== 'update' || (!args.flags.check && args.flags['from-relay'] === undefined)) {
-    await finalizePendingUpdate()
-  }
+  const inspectingUpdate = args.command === 'update' &&
+    (args.flags.check || args.flags['from-relay'] !== undefined || args.flags['verify-rollout'] !== undefined)
+  if (!inspectingUpdate) await finalizePendingUpdate()
 
   if (args.flags.version) {
     process.stdout.write(`hermes-relay ${readVersion()}\n`)

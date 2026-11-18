@@ -73,6 +73,7 @@ $oldDaemon = $null
 $taskBackups = @()
 $mutatedFiles = @('remote-sessions.json','desktop-host-access.json','desktop-device-id','run-connector.ps1','relay-connector-hidden.vbs','connector-control.ps1','Stop.cmd','Status.cmd')
 $existingFiles = @{}
+$savedRollouts = @()
 $tray = Join-Path $binDir 'hermes-relay-tray.exe'
 $runKey = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Run'
 $runValue = $null
@@ -143,6 +144,160 @@ function Get-ConnectorDaemonState {
         if ([IO.Path]::GetFullPath([string]$snapshot.ExecutablePath) -ine [IO.Path]::GetFullPath($Executable)) { return 'recycled' }
         return 'alive'
     } catch { return 'unknown' }
+}
+function Get-ConnectorRolloutDigest([string]$Path) {
+    return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash.ToLowerInvariant()
+}
+function Get-ConnectorRolloutPublisher([string]$Path) {
+    $signature = Get-AuthenticodeSignature -LiteralPath $Path
+    if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate) { throw '连接器数字签名无效。' }
+    $sha = [Security.Cryptography.SHA256]::Create()
+    try { return ([BitConverter]::ToString($sha.ComputeHash($signature.SignerCertificate.RawData))).Replace('-','').ToLowerInvariant() }
+    finally { $sha.Dispose() }
+}
+function Stop-ConnectorRolloutDaemon([string]$StatusPath,[string]$Executable) {
+    $state = Get-ConnectorDaemonState $StatusPath $Executable
+    if ($state -eq 'unknown') { throw '无法确认后台进程，稍后重试更新。' }
+    if ($state -ne 'alive') { return }
+    $status = [IO.File]::ReadAllText($StatusPath) | ConvertFrom-Json
+    try { $process = [Diagnostics.Process]::GetProcessById([int]$status.pid) } catch [ArgumentException] { return }
+    try {
+        if (-not $process.HasExited) {
+            # Hold the OS process handle and recheck the full image path before stopping it.
+            $null = $process.Handle
+            if ($process.MainModule.FileName -ine $Executable) { throw '后台进程路径已变化。' }
+            $process.Kill()
+            if (-not $process.WaitForExit(5000)) { throw '后台进程未能退出。' }
+        }
+    } finally { $process.Dispose() }
+}
+function Write-ConnectorRolloutJson([string]$Path,[object]$Value) {
+    $temporary = $Path + '.' + [Guid]::NewGuid().ToString('N') + '.tmp'
+    try {
+        [IO.File]::WriteAllText($temporary,(ConvertTo-Json -InputObject $Value -Compress))
+        if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary,$Path,[NullString]::Value) }
+        else { [IO.File]::Move($temporary,$Path) }
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
+function Read-ConnectorRolloutJson([string]$Path) {
+    if ((Get-Item -LiteralPath $Path).Length -gt 4096) { throw '连接器更新记录无效。' }
+    return ([IO.File]::ReadAllText($Path) | ConvertFrom-Json)
+}
+function Clear-ConnectorRolloutTrial([string]$Executable,[string]$Trial,[string]$State) {
+    $backup = Join-Path $Trial 'backup.exe'
+    if ($State -ceq 'applied' -and [IO.File]::Exists($backup)) {
+        $previous = $Executable+'.rollout-previous.exe'
+        if ([IO.File]::Exists($previous)) { [IO.File]::Replace($backup,$previous,[NullString]::Value) }
+        else { [IO.File]::Move($backup,$previous) }
+    }
+    [IO.Directory]::Delete($Trial,$true)
+}
+function Complete-ConnectorRollout([string]$Executable,[string]$Trial,[object]$Plan,[string]$State) {
+    Write-ConnectorRolloutJson ($Executable+'.rollout-result.json') @{
+        attempt_id=$Plan.attempt_id; version=$Plan.version; sha256=$Plan.sha256
+        state=$State; completed_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+    }
+    Clear-ConnectorRolloutTrial $Executable $Trial $State
+}
+function Restore-ConnectorRollout([string]$Executable,[string]$StatusPath,[string]$Trial,[object]$Plan) {
+    $backup = Join-Path $Trial 'backup.exe'
+    if ([IO.File]::Exists($backup)) {
+        if ((Get-ConnectorRolloutDigest $backup) -cne $Plan.previous_sha256 -or
+            (Get-ConnectorRolloutPublisher $backup) -cne $Plan.publisher_sha256) {
+            throw '原版本未通过回退校验。'
+        }
+        Stop-ConnectorRolloutDaemon $StatusPath $Executable
+        if ([IO.File]::Exists($Executable)) { [IO.File]::Replace($backup,$Executable,[NullString]::Value) }
+        else { [IO.File]::Move($backup,$Executable) }
+    }
+    if ((Get-ConnectorRolloutDigest $Executable) -cne $Plan.previous_sha256) { throw '无法确认原版本已恢复。' }
+    Complete-ConnectorRollout $Executable $Trial $Plan 'rolled_back'
+}
+function Wait-ConnectorRolloutHealth([string]$StatusPath,[string]$Executable,[string]$Remote,[string]$Version) {
+    # One normal daemon heartbeat is 30 seconds. Keep a short settling
+    # window so a process that authenticates and immediately exits fails.
+    $first = [IO.File]::ReadAllText($StatusPath) | ConvertFrom-Json
+    if ([string]$first.pid -notmatch '^[1-9][0-9]{0,9}$') { throw '更新后台进程标识无效。' }
+    for ($sample = 0; $sample -le 7; $sample++) {
+        if ($sample -gt 0) { Start-Sleep -Seconds 5 }
+        $status = [IO.File]::ReadAllText($StatusPath) | ConvertFrom-Json
+        if ($status.pid -ne $first.pid -or $status.state -cne 'connected' -or $status.node_version -cne $Version -or
+            $status.configured_url -cne $Remote -or $status.privilege -cne 'user' -or
+            (Get-ConnectorDaemonState $StatusPath $Executable) -ne 'alive') {
+            throw '更新后未确认预期版本持续连接。'
+        }
+    }
+    $age = [DateTimeOffset]::UtcNow.ToUnixTimeSeconds() - [long]$status.updated_at
+    if ([long]$status.updated_at -le [long]$first.updated_at -or $age -lt 0 -or $age -gt 15) {
+        throw '更新后的后台连接未报告新的心跳。'
+    }
+}
+function Invoke-ConnectorRollout([string]$Executable,[string]$StatusPath,[string]$Remote) {
+    $stage = $Executable+'.rollout-stage'
+    $trial = $Executable+'.rollout-trial'
+    if (-not [IO.Directory]::Exists($trial)) {
+        if (-not [IO.Directory]::Exists($stage)) { return }
+        # A rename claims the fully staged EXE and its approval together.
+        [IO.Directory]::Move($stage,$trial)
+    }
+    $candidate = Join-Path $trial 'candidate.exe'
+    $backup = Join-Path $trial 'backup.exe'
+    $journal = Join-Path $trial 'plan.json'
+    $receiptPath = $Executable+'.rollout-result.json'
+    if ([IO.File]::Exists($journal)) {
+        $plan = Read-ConnectorRolloutJson $journal
+        if ($plan.attempt_id -cnotmatch '\A[0-9a-f]{32}\z' -or $plan.sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
+            $plan.previous_sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or $plan.publisher_sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
+            $plan.version -cnotmatch '\A[0-9A-Za-z.-]{5,128}\z') { throw '连接器更新记录无效。' }
+        if ([IO.File]::Exists($receiptPath)) {
+            $receipt = Read-ConnectorRolloutJson $receiptPath
+            if ($receipt.attempt_id -ceq $plan.attempt_id -and
+                $receipt.state -cin @('applied','rolled_back')) {
+                $expected = if ($receipt.state -ceq 'applied') { $plan.sha256 } else { $plan.previous_sha256 }
+                if ((Get-ConnectorRolloutDigest $Executable) -cne $expected) { throw '连接器版本状态不一致。' }
+                Clear-ConnectorRolloutTrial $Executable $trial $receipt.state
+                return
+            }
+        }
+        if ([IO.File]::Exists($backup) -or -not [IO.File]::Exists($candidate)) {
+            # An interrupted attempt must return to its last confirmed binary.
+            Restore-ConnectorRollout $Executable $StatusPath $trial $plan
+            return
+        }
+    } elseif ([IO.File]::Exists($backup)) { throw '缺少连接器回退记录。' }
+
+    $verified = Invoke-ConnectorHiddenCli $Executable 'update --verify-rollout --json' 30000
+    if ($verified.ExitCode -ne 0) {
+        [IO.Directory]::Delete($trial,$true)
+        return
+    }
+    $approval = $verified.StandardOutput | ConvertFrom-Json
+    if ($approval.version -cnotmatch '\A[0-9A-Za-z.-]{5,128}\z' -or
+        $approval.sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
+        (Get-ConnectorRolloutDigest $candidate) -cne $approval.sha256) {
+        [IO.Directory]::Delete($trial,$true)
+        return
+    }
+    $plan = @{
+        attempt_id=[Guid]::NewGuid().ToString('N'); version=$approval.version; sha256=$approval.sha256
+        previous_sha256=(Get-ConnectorRolloutDigest $Executable)
+        publisher_sha256=(Get-ConnectorRolloutPublisher $Executable)
+    }
+    Write-ConnectorRolloutJson $journal $plan
+    try {
+        Stop-ConnectorRolloutDaemon $StatusPath $Executable
+        [IO.File]::Replace($candidate,$Executable,$backup)
+        if ((Get-ConnectorRolloutDigest $Executable) -cne $plan.sha256) { throw '更新文件与已验证版本不一致。' }
+        $start = Invoke-ConnectorHiddenCli $Executable ('daemon start --no-voice --remote '+$Remote) 35000
+        if ($start.ExitCode -ne 0) { throw '更新后的后台连接未就绪。' }
+        Wait-ConnectorRolloutHealth $StatusPath $Executable $Remote $plan.version
+    } catch {
+        Restore-ConnectorRollout $Executable $StatusPath $trial $plan
+        return
+    }
+    Complete-ConnectorRollout $Executable $trial $plan 'applied'
 }
 function Get-ConnectorLauncherContent([string]$PowerShellPath,[string]$ScriptPath) {
     # WScript is a GUI subsystem executable, so Task Scheduler never creates a
@@ -368,6 +523,14 @@ try {
     }
     if ($hadCli) { Copy-Item -LiteralPath $cli -Destination (Join-Path $backup 'hermes-relay-before.exe') }
     Stop-RemainingConnectorProcesses
+    # A new installation can change node authorization and executable version.
+    # Keep the earlier rollout together with its original installation snapshot.
+    foreach ($suffix in @('.rollout-stage','.rollout-trial')) {
+        if ([IO.Directory]::Exists($cli+$suffix)) {
+            [IO.Directory]::Move(($cli+$suffix),(Join-Path $backup ('hermes-relay.exe'+$suffix)))
+            $savedRollouts += $suffix
+        }
+    }
     # Copy beside the old binary first; Windows rejects replacement if any old
     # executable owner remains. No validation websocket is opened until stop.
     Copy-Item -LiteralPath $payload -Destination ($cli+'.new') -Force
@@ -390,6 +553,7 @@ $lock = $null
 try {
     try { $lock = [IO.File]::Open(__LOCK__,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None) }
     catch [IO.IOException] { if (-not (Test-Path -LiteralPath __READY__)) { exit 1 } }
+    if ($lock) { Invoke-ConnectorRollout $cli __STATUS__ __REMOTE__ }
     $state = Get-ConnectorDaemonState __STATUS__ $cli
     if ($state -eq 'alive') { exit 0 }
     if ($state -eq 'unknown') { exit 1 }
@@ -398,7 +562,10 @@ try {
 } catch { exit 1 } finally { if ($lock) { $lock.Dispose() } }
 '@
     $wrapper = $wrapper.Replace('__PROFILE__',(Quote-Literal $profileRoot)).Replace('__POLICY__',(Quote-Literal $env:HERMES_RELAY_HOST_ACCESS_POLICY_PATH)).Replace('__CLI__',(Quote-Literal $cli)).Replace('__LOCK__',(Quote-Literal (Join-Path $homeDir 'connector-install.lock'))).Replace('__REMOTE__',(Quote-Literal $remote)).Replace('__READY__',(Quote-Literal $readyPath)).Replace('__STATUS__',(Quote-Literal (Join-Path $homeDir 'daemon-status.json')))
-    foreach ($name in @('Get-ConnectorProcessSnapshot','Get-ConnectorDaemonState','Invoke-ConnectorHiddenCli')) {
+    foreach ($name in @('Get-ConnectorProcessSnapshot','Get-ConnectorDaemonState','Invoke-ConnectorHiddenCli',
+        'Get-ConnectorRolloutDigest','Get-ConnectorRolloutPublisher','Stop-ConnectorRolloutDaemon',
+        'Write-ConnectorRolloutJson','Read-ConnectorRolloutJson','Clear-ConnectorRolloutTrial','Complete-ConnectorRollout',
+        'Restore-ConnectorRollout','Wait-ConnectorRolloutHealth','Invoke-ConnectorRollout')) {
         $wrapper = 'function '+$name+' {'+(Get-Item ('Function:\'+$name)).ScriptBlock.ToString()+"}`r`n"+$wrapper
     }
     [IO.File]::WriteAllText($wrapperPath,$wrapper.Replace("`r`n","`n").Replace("`n","`r`n"),$utf8Bom)
@@ -429,7 +596,7 @@ if ($Action -eq 'Stop') {
     $action = New-ScheduledTaskAction -Execute $launcherExecutable -Argument ('//B //Nologo "'+$launcherPath+'"')
     $triggers = @((New-ScheduledTaskTrigger -AtLogOn -User $user),(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)))
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
-    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 1)
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -MultipleInstances IgnoreNew -ExecutionTimeLimit (New-TimeSpan -Minutes 3)
     # Register disabled until the exact binary has authenticated successfully.
     $settings.Enabled = $false
     Register-ScheduledTask -TaskName $taskName -TaskPath '\' -Action $action -Trigger $triggers -Principal $principal -Settings $settings -Description 'Ayin-Relay 后台连接器，登录自启及进程恢复' -Force | Out-Null
@@ -495,6 +662,10 @@ if ($Action -eq 'Stop') {
             if ($hadCli) { Copy-Item -LiteralPath (Join-Path $backup 'hermes-relay-before.exe') -Destination $cli -Force }
             else { Remove-Item -LiteralPath $cli -Force -ErrorAction SilentlyContinue }
         } catch { $rollbackErrors += '程序和授权文件' }
+    }
+    foreach ($suffix in $savedRollouts) {
+        try { [IO.Directory]::Move((Join-Path $backup ('hermes-relay.exe'+$suffix)),($cli+$suffix)) }
+        catch { $rollbackErrors += '原更新状态' }
     }
     # Restore the old daemon's own host and voice setting, never the new setup's
     # host. Restart only if it was running before installation.

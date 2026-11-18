@@ -98,6 +98,9 @@ test('a verified release is staged with its approval record and retains the acti
       assert.deepEqual(await readFile(path), bytes)
     })
   assert.equal(staged.needsRestart, true)
+  assert.equal(staged.installedPath, join(`${target}.rollout-stage`, 'candidate.exe'))
+  await assert.rejects(stageWindowsNodeRelease(target, offer.version, offer.sha256, download, async () => {}))
+  assert.deepEqual((await readdir(root)).sort(), ['hermes-relay.exe', 'hermes-relay.exe.rollout-stage'])
   assert.equal(await readFile(target, 'utf8'), 'old executable')
   assert.deepEqual(await readFile(staged.installedPath), bytes)
   assert.deepEqual(JSON.parse(await readFile(`${staged.installedPath}.json`, 'utf8')), {

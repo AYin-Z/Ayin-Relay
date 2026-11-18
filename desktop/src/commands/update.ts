@@ -28,6 +28,7 @@ import {
   checkForUpdate,
   compareVersions,
   downloadAndInstall,
+  verifyPendingWindowsNode,
   type DownloadOptions,
   type UpdateInfo
 } from '../updater.js'
@@ -214,7 +215,7 @@ async function updateFromRelay(args: ParsedArgs, platform: NodeJS.Platform, arch
     }
     await stageRelayRelease(url, session.token, offer)
     output({ current: VERSION, offer, staged: true, needs_restart: true },
-      `Verified Windows node update ${offer.version} is staged for startup.`)
+      `Verified Windows node update ${offer.version} is staged for the connector launcher.`)
     return 0
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Relay update failed'
@@ -224,10 +225,28 @@ async function updateFromRelay(args: ParsedArgs, platform: NodeJS.Platform, arch
   }
 }
 
+// Called by the installed launcher before it stops the daemon. The launcher
+// waits for this process to exit before attempting to replace the executable.
+async function verifyConnectorRollout(args: ParsedArgs): Promise<number> {
+  if (process.platform !== 'win32' || process.arch !== 'x64' ||
+      args.flags['verify-rollout'] !== true || args.flags.json !== true || args.positional.length ||
+      Object.keys(args.flags).length !== 2) return 1
+  try {
+    const executable = process.execPath
+    const candidate = join(`${executable}.rollout-trial`, 'candidate.exe')
+    const approval = await verifyPendingWindowsNode(executable, candidate, VERSION)
+    process.stdout.write(JSON.stringify(approval) + '\n')
+    return 0
+  } catch {
+    return 1
+  }
+}
+
 export async function updateCommand(
   args: ParsedArgs,
   options: UpdateCommandOptions = {}
 ): Promise<number> {
+  if (args.flags['verify-rollout'] !== undefined) return verifyConnectorRollout(args)
   const wantJson = !!args.flags.json
   const checkOnly = !!args.flags.check
   const autoYes = !!args.flags.yes

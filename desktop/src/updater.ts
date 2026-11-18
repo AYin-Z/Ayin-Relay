@@ -375,14 +375,12 @@ export async function stageWindowsNodeRelease(
       throw new Error('Windows node download differs from the approved SHA-256')
     }
     await verify(target, candidate, version)
-    const lock = await acquireProcessLock(`${target}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
-    try {
-      const staged = `${target.slice(0, -4)}.new.exe`
-      await writePendingWindowsRelease(staged, candidate, version, digest)
-      return { installedPath: staged, needsRestart: true, sha256: digest }
-    } finally {
-      await lock.release()
-    }
+    // Publish both files together. A running supervisor can claim the
+    // complete directory without racing the download or the approval record.
+    await writeFile(`${candidate}.json`, JSON.stringify({ version, sha256: digest }), { mode: 0o600 })
+    const staged = `${target}.rollout-stage`
+    await rename(directory, staged)
+    return { installedPath: join(staged, 'candidate.exe'), needsRestart: true, sha256: digest }
   } finally {
     await rm(directory, { recursive: true, force: true }).catch(() => undefined)
   }
@@ -473,13 +471,14 @@ export async function finalizePendingUpdate(): Promise<void> {
     // binary, nothing to swap.
     return
   }
-  await finalizePendingUpdateAt(target, candidate => verifyPendingWindowsNode(target, candidate, VERSION))
+  if (await stat(`${target}.rollout-trial`).catch(() => null)) return
+  await finalizePendingUpdateAt(target, async candidate => { await verifyPendingWindowsNode(target, candidate, VERSION) })
 }
 
 /** Reconfirm the exact approved release after restart without executing its binary. */
 export async function verifyPendingWindowsNode(
   current: string, candidate: string, installedVersion: string, verify = verifyWindowsUpdate
-): Promise<void> {
+): Promise<{ version: string; sha256: string }> {
   const recordPath = `${candidate}.json`
   if ((await stat(recordPath)).size > 1024) throw new Error('Invalid pending Windows release record')
   const approved: unknown = JSON.parse(await readFile(recordPath, 'utf8'))
@@ -493,6 +492,7 @@ export async function verifyPendingWindowsNode(
     throw new Error('Pending Windows update bytes differ from the approved release')
   }
   await verify(current, candidate, approved.version)
+  return { version: approved.version, sha256: approved.sha256 }
 }
 
 /** Check and claim a Windows update before moving the active program. */

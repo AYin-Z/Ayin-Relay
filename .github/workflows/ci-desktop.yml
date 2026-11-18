@@ -86,6 +86,7 @@ jobs:
         run: |
           ./connector/tests/install-process-stop.test.ps1
           ./connector/tests/install-hidden-launch.test.ps1
+          ./connector/tests/install-rollout.test.ps1
 
       - name: --version
         run: node bin/hermes-relay.js --version

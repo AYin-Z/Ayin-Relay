@@ -34,6 +34,7 @@ import { closeSync, openSync, promises as fs } from 'node:fs'
 import * as os from 'node:os'
 import * as path from 'node:path'
 
+import { VERSION } from '../version.js'
 import type { ParsedArgs } from '../cli.js'
 import { desktopRelayIdentity } from '../deviceIdentity.js'
 import { inferEndpointRole } from '../endpoint.js'
@@ -901,6 +902,7 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
   const status: DaemonStatus = {
     pid: process.pid,
     process_name: path.basename(process.execPath),
+    node_version: VERSION,
     url,
     configured_url: configuredUrl,
     active_route: activeRoute ?? undefined,
