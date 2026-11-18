@@ -49,7 +49,7 @@ python3 scripts/package-desktop-connector.py \
   --relay-url wss://relay.example.test
 ```
 
-The result is an unsigned test candidate. The published EXE requires Authenticode signing and Windows acceptance with the chosen publisher, portal, account and browser. The EXE uses the current per-user installation flow. Administrator-assisted legacy migration and pre-sign-in operation still require separate validation.
+The packaging command produces an unsigned wrapper. For a runnable release, sign the node executable before packaging, then sign the resulting EXE with the same publisher certificate. The launcher checks both signatures in Windows before it runs the node. Verify the candidate with the chosen publisher, portal, account and browser. The EXE uses the current per-user installation flow. Administrator-assisted legacy migration and pre-sign-in operation still require separate validation.
 
 ## Operator setup
 

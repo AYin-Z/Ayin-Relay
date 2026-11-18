@@ -363,6 +363,7 @@ export async function updateCommand(
           ? dirname(process.execPath)
           : join(homedir(), '.hermes', 'bin')
       scheduleWindowsInstaller(result.installedPath, {
+        expectedSha256: result.sha256,
         // An existing bundle update already received CLI confirmation. Run
         // setup silently so its finish-page checkbox cannot start a tray that
         // was stopped before the update; the helper restores exact state.
@@ -377,7 +378,9 @@ export async function updateCommand(
     if (useTtyProgress) process.stdout.write('\n')
 
     if (!wantJson) {
-      process.stdout.write('-> verifying SHA256... ok\n')
+      process.stdout.write(platform === 'win32'
+        ? '-> SHA256 and Windows publisher verified\n'
+        : '-> verifying SHA256... ok\n')
       process.stdout.write(
         installer
           ? downloadOnly

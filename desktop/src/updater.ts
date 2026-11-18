@@ -21,11 +21,13 @@
 
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { rename, stat, unlink } from 'node:fs/promises'
+import { mkdtemp, rename, rm, stat, unlink } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
+import { acquireProcessLock } from './lib/processLock.js'
+import { verifyWindowsUpdate } from './lib/windowsUpdateTrust.js'
 import { VERSION } from './version.js'
 
 const DEFAULT_REPO = 'AYin-Z/Ayin-Relay'
@@ -49,11 +51,13 @@ export interface DownloadOptions {
   targetPath?: string
   onProgress?: (bytes: number, total: number) => void
   cooperative?: boolean
+  verifyCandidate?: (candidate: string) => Promise<void>
 }
 
 export interface DownloadResult {
   installedPath: string
   needsRestart: boolean
+  sha256: string
 }
 
 // ---------------------------------------------------------------------------
@@ -320,17 +324,15 @@ function extractChecksum(sums: string, assetName: string): string | null {
 
 /** Windows can't rename over a running .exe — stage next to it. Other OSes
  *  can atomically overwrite (POSIX rename keeps the existing inode live). */
-function stagingPathFor(targetPath: string): { downloadTmp: string; finalStaged: string; cooperative: boolean } {
-  const dir = dirname(targetPath)
-  const downloadTmp = join(dir, '.hermes-relay.download')
+function stagingPathFor(targetPath: string): { finalStaged: string; cooperative: boolean } {
   if (process.platform === 'win32') {
     // Mirror the target's extension when present so the new file is also
     // runnable directly if the user wants to test it before the swap.
     const ext = targetPath.toLowerCase().endsWith('.exe') ? '.exe' : ''
     const base = ext ? targetPath.slice(0, -ext.length) : targetPath
-    return { downloadTmp, finalStaged: `${base}.new${ext}`, cooperative: true }
+    return { finalStaged: `${base}.new${ext}`, cooperative: true }
   }
-  return { downloadTmp, finalStaged: targetPath, cooperative: false }
+  return { finalStaged: targetPath, cooperative: false }
 }
 
 export async function downloadAndInstall(
@@ -344,10 +346,8 @@ export async function downloadAndInstall(
   const paths = stagingPathFor(targetPath)
   const cooperative = opts.cooperative ?? paths.cooperative
   const finalStaged = cooperative ? paths.finalStaged : targetPath
-  const downloadTmp = paths.downloadTmp
-
-  // Best-effort cleanup of any stale temp file from a previous aborted run.
-  try { await unlink(downloadTmp) } catch { /* ok */ }
+  const downloadDir = await mkdtemp(join(dirname(targetPath), '.hermes-relay-download-'))
+  const downloadTmp = join(downloadDir, process.platform === 'win32' ? 'candidate.exe' : 'candidate')
 
   try {
     await downloadTo(info.asset_url, downloadTmp, opts.onProgress)
@@ -363,6 +363,11 @@ export async function downloadAndInstall(
       throw new Error(`checksum mismatch: expected ${expected}, got ${actual}`)
     }
 
+    const verifyCandidate = opts.verifyCandidate ?? (process.platform === 'win32'
+      ? (candidate: string) => verifyWindowsUpdate(process.execPath, candidate)
+      : undefined)
+    await verifyCandidate?.(downloadTmp)
+
     // On POSIX we can chmod +x here before the rename so the final file is
     // immediately runnable. Skip on Windows (NTFS ignores the bits).
     if (process.platform !== 'win32') {
@@ -371,11 +376,17 @@ export async function downloadAndInstall(
     }
 
     // Atomic rename → target (POSIX) or .new.exe (Windows).
-    await rename(downloadTmp, finalStaged)
-    return { installedPath: finalStaged, needsRestart: cooperative }
-  } catch (err) {
-    try { await unlink(downloadTmp) } catch { /* ok */ }
-    throw err
+    const lock = cooperative
+      ? await acquireProcessLock(`${targetPath}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
+      : undefined
+    try {
+      await rename(downloadTmp, finalStaged)
+    } finally {
+      await lock?.release()
+    }
+    return { installedPath: finalStaged, needsRestart: cooperative, sha256: actual }
+  } finally {
+    await rm(downloadDir, { recursive: true, force: true }).catch(() => undefined)
   }
 }
 
@@ -399,38 +410,41 @@ export async function finalizePendingUpdate(): Promise<void> {
     // binary, nothing to swap.
     return
   }
-  await finalizePendingUpdateAt(target)
+  await finalizePendingUpdateAt(target, candidate => verifyWindowsUpdate(target, candidate))
 }
 
-/** Path-level implementation used by the Windows startup hook and tests. */
-export async function finalizePendingUpdateAt(target: string): Promise<void> {
+/** Check and claim a Windows update before moving the active program. */
+export async function finalizePendingUpdateAt(
+  target: string,
+  verifyCandidate: (candidate: string) => Promise<void>,
+  move: typeof rename = rename
+): Promise<void> {
   const base = target.slice(0, -'.exe'.length)
   const newPath = `${base}.new.exe`
   const oldPath = `${base}.old.exe`
 
-  // Reap a backup from the prior cooperative swap even when no new update is
-  // staged. The prior process can keep the renamed image locked until exit.
-  try { await unlink(oldPath) } catch { /* absent or still locked */ }
-
   try {
     await stat(newPath)
+    const lock = await acquireProcessLock(`${target}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
+    try {
+      // Validate again at the point of replacement, including on a restart.
+      await verifyCandidate(newPath)
+      try {
+        await unlink(oldPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      await move(target, oldPath)
+      try {
+        await move(newPath, target)
+      } catch {
+        await move(oldPath, target)
+      }
+    } finally {
+      await lock.release()
+    }
   } catch {
-    return // no pending update
-  }
-
-  try {
-    // Move running binary → .old.exe. This is allowed on Windows even for
-    // the actively-executing image (the OS keeps the handle; the file just
-    // gets a new name).
-    await rename(target, oldPath)
-    // Move staged → target.
-    await rename(newPath, target)
-    // Re-attempt old cleanup; usually stays until process exits, that's OK.
-    try { await unlink(oldPath) } catch { /* ok */ }
-  } catch {
-    // Swap failed — keep going with whatever binary is currently on disk.
-    // User will see the .new.exe on the next run and can try again, or clean
-    // it up manually. We deliberately don't surface an error here: finalize
-    // is a best-effort preflight, not a user-visible operation.
+    // Keep the stage for inspection or retry. If the filesystem blocks
+    // restoration too, the original remains at oldPath.
   }
 }

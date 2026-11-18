@@ -17,6 +17,12 @@ Use `python scripts/check-version-tracks.py` to validate versions. The two surfa
 
 The coordinated approval workflow can dispatch both surface approvals. Review status on the exact candidate tree. Production uses immutable stable tags.
 
+## Windows signatures and updates
+
+Sign the Windows node payload before building the single-file connector. Sign the outer installer with the same Authenticode certificate. Record both hashes after signing. The signed EXE download setup is covered in [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
+
+Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. Cooperative swaps check the candidate again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
+
 ## Hotfix and back-merge
 
 Start from the deployed surface tag. Prepare and test the patch and release from the approved `main` hotfix result. After the stable release, the release-backmerge workflow checks a candidate that merges the published hotfix into the existing `dev` history. It fast-forwards `dev` only after checks pass on that exact tree and the base still matches. Conflicts, stale bases, failed checks and permissions failures require a reconciliation PR. Regular `dev` → `main` releases already contain the integration parent and need no extra back-merge.

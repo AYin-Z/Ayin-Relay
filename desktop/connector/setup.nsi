@@ -7,6 +7,7 @@ VIProductVersion "${VERSION_NUM}"
 VIAddVersionKey "ProductName" "Ayin-Relay Windows Connector"
 VIAddVersionKey "FileDescription" "Ayin-Relay Windows Connector Setup"
 VIAddVersionKey "FileVersion" "${VERSION_NUM}"
+VIAddVersionKey "LegalCopyright" "Ayin-Relay contributors, MIT License"
 
 Page instfiles
 
@@ -28,7 +29,7 @@ Section
   File "${PAYLOAD}/manifest.json"
   File "${PAYLOAD}/portal.json"
   ClearErrors
-  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\launch.ps1"' $0
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\launch.ps1" -InstallerPath "$EXEPATH"' $0
   IfErrors failed
   StrCmp $0 "0" installed
 failed:
