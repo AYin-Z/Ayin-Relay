@@ -20,6 +20,8 @@ on:
       - "relay_server/**"
       - "hermes_relay_bootstrap/**"
       - "pyproject.toml"
+      - "scripts/build-signed-windows-connector.py"
+      - "scripts/tests/build_signed_windows_connector_test.py"
       - "scripts/check-plugin-version-sync.py"
       - "scripts/check-server-version-sync.py"
       - "scripts/bump-plugin-version.sh"
@@ -120,6 +122,7 @@ jobs:
             plugin/tests/test_desktop_rollout.py \
             plugin/tests/test_node_release.py \
             scripts/tests/package_desktop_connector_test.py \
+            scripts/tests/build_signed_windows_connector_test.py \
             plugin/tests/test_profile_plugin_registration.py \
             plugin/tests/test_native_layout_imports.py \
             plugin/tests/test_profile_discovery.py \

@@ -25,6 +25,7 @@ function classifyCiPaths(paths) {
     plugin: forceAll || paths.some((path) => /^plugin\/[^/]+\.py$/.test(path)) ||
       under(['plugin/relay/', 'plugin/tools/', 'plugin/tests/', 'relay_server/', 'hermes_relay_bootstrap/']) || exact([
         'plugin/plugin.yaml', 'pyproject.toml', 'uv.lock',
+        'scripts/build-signed-windows-connector.py', 'scripts/tests/build_signed_windows_connector_test.py',
         'scripts/package-desktop-connector.py', 'scripts/tests/package_desktop_connector_test.py', 'scripts/check-plugin-version-sync.py',
         'scripts/check-server-version-sync.py', 'scripts/bump-plugin-version.sh',
         'scripts/bump-server-version.sh', '.github/workflows/ci-plugin.yml',

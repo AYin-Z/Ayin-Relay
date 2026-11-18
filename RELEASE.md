@@ -19,7 +19,24 @@ The coordinated approval workflow can dispatch both surface approvals. Review st
 
 ## Windows signatures and updates
 
-Use the native Windows build for the release node payload. It embeds the Ayin-Relay Windows Node product name and the exact release version. The release job checks those fields before uploading the tested file. Cross-builds remain useful for packaging fixtures. Sign the Windows node payload before building the single-file connector. Sign the outer installer with the same Authenticode certificate. Record both hashes after signing. The signed EXE download setup is covered in [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
+Prepare the private installer and its node binary on an x64 Windows signing host with Git, Python 3.11+, Node/npm, the Bun version in `desktop/.bun-version`, NSIS and Windows SDK SignTool. The signing provider must expose the approved code-signing certificate and key through the current Windows user's personal certificate store. Supply the provider's HTTPS RFC 3161 timestamp URL and pin the certificate's SHA-256 DER fingerprint. [Windows SDK SignTool documentation](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
+
+Run the following from the repository with deployment settings supplied in the indicated environment variables.
+
+```powershell
+python scripts/build-signed-windows-connector.py `
+  --source-sha $env:RELEASE_COMMIT_SHA `
+  --output $env:RELEASE_OUTPUT_DIR `
+  --certificate-sha1 $env:CODE_SIGNING_CERTIFICATE_THUMBPRINT `
+  --publisher-sha256 $env:CODE_SIGNING_CERTIFICATE_SHA256 `
+  --timestamp-url $env:CODE_SIGNING_TIMESTAMP_URL `
+  --browser-portal $env:CONNECTOR_ENROLLMENT_URL `
+  --relay-url $env:CONNECTOR_RELAY_URL
+```
+
+If SignTool or NSIS is outside PATH, pass its full path with `--signtool` or `--makensis`. Use a new output directory under an existing parent. The command builds from the selected Git commit in a temporary directory, signs the node before embedding it, then signs the outer installer. It checks both embedded signatures, timestamps, publisher pins and product metadata before making the output available.
+
+The output contains the signed node `hermes-relay-win-x64.exe`, the signed private installer `Ayin-Relay-Setup-x64.exe` and `release.json` with the source commit, version, publisher fingerprint and SHA-256 of each finished file. Configure the portal with the installer entry and the update offer with the node entry. Keep this installer within its intended authenticated download portal. See [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
 
 Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. A Windows x64 node update also matches the signed executable's product and exact version to the selected release. Cooperative swaps verify the saved hash and release version again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
 
