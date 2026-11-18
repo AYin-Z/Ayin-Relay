@@ -11,8 +11,9 @@ separate runtime contract and remains covered by the existing compatibility test
 
 ## Read this first
 
-This file is the provider-neutral canonical agent context. Read it before
-touching code, then `docs/spec.md` and `docs/decisions.md`. Provider adapters
+Start with this file and the [runtime map in README](README.md#runtime-map).
+Use [the architecture](docs/spec.md) and [decision history](docs/decisions.md)
+for the surface you are changing. Provider adapters
 such as **[CLAUDE.md](CLAUDE.md)** import this file instead of duplicating
 policy. They do not redefine the branch, release, hotfix, or verification
 contract here and in `RELEASE.md`.

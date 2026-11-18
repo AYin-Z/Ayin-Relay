@@ -1,7 +1,6 @@
 # Hermes Relay Android UI Design Reference
 
-Status: design reference for Android and pairing-flow work. The quarantined
-Quest prototype is retained under `experiments/quest/` for historical context.
+Status: design reference for Android and pairing-flow work.
 
 Use this document when a future session asks for mobile UI polish, pairing flow changes, QR scanning, connection setup, onboarding, terminal cockpit, or "make it feel more like Orca." It is intentionally a reference, not an implementation task list.
 
@@ -205,10 +204,7 @@ Target layout:
 
 ### Quest / XR
 
-The inactive Quest prototype is quarantined under `experiments/quest/` and is
-not part of the production Android build or normal CI. If development resumes,
-use this reference for its visual tone, but do not force the phone layout into
-XR. The spatial cockpit concept was:
+The inactive Quest prototype lives in [Git history](https://github.com/AYin-Z/Ayin-Relay/tree/81a736a52ad06ab5b3a18fda6e2525b02bb604d8/experiments/quest). Its spatial cockpit concept was:
 
 - MorphingSphere and voice pipeline remain first-class.
 - Terminal panels should be spatial, readable, and anchored.

@@ -591,18 +591,6 @@ class TerminalViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    /** Server-side detach without removing the tab — currently unused but kept for parity with the old API. */
-    fun detach(tabId: Int) {
-        val tab = tabById(tabId) ?: return
-        if (!tab.attached) return
-        sendEnvelope("terminal.detach", buildJsonObject {
-            put("session_name", tab.sessionName)
-        })
-        updateTab(tabId) {
-            it.copy(attached = false, attaching = false, pid = null)
-        }
-    }
-
     // ── Envelope handling ────────────────────────────────────────────────
 
     private fun sendAttach(tabId: Int, cols: Int, rows: Int) {

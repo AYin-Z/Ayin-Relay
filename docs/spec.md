@@ -6,7 +6,7 @@ Android's declarative plugin surface is specified in
 ## Specification v1.4
 
 **Status:** v1.0.0 stable. The default path supports chat, Manage, and voice on vanilla upstream Hermes without installing the Relay plugin. Relay is additive: terminal, bridge/device control, notification companion, remote access, extra/provider-native voice, desktop tooling, and dashboard Relay management. Historical phase notes remain in this file for context; the current route ownership source of truth is [`docs/upstream-surface-matrix.md`](upstream-surface-matrix.md).
-**Repo:** [Codename-11/hermes-relay](https://github.com/Codename-11/hermes-relay)  
+**Repo:** [AYin-Z/Ayin-Relay](https://github.com/AYin-Z/Ayin-Relay)
 **Updated:** 2026-08-31
 
 ---

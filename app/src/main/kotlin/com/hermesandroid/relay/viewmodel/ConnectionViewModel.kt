@@ -8366,19 +8366,6 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
         }
     }
 
-    // Backward compat wrappers
-    @Deprecated("Use connectRelay", replaceWith = ReplaceWith("connectRelay(url)"))
-    fun connect(url: String) = connectRelay(url)
-
-    @Deprecated("Use connectRelay", replaceWith = ReplaceWith("connectRelay()"))
-    fun connect() = connectRelay()
-
-    @Deprecated("Use disconnectRelay", replaceWith = ReplaceWith("disconnectRelay()"))
-    fun disconnect() = disconnectRelay()
-
-    @Deprecated("Use updateRelayUrl", replaceWith = ReplaceWith("updateRelayUrl(url)"))
-    fun updateServerUrl(url: String) = updateRelayUrl(url)
-
     // --- What's New + Version tracking ---
 
     /** Dev/test hook (Developer options → Test harness): show What's New now. */
@@ -8556,10 +8543,6 @@ class ConnectionViewModel(application: Application) : AndroidViewModel(applicati
     }
 
     fun resetPetPlacement() = setPetPlacement(DEFAULT_PET_PLACEMENT)
-
-    /** One-release compatibility shim for the former combined picker. */
-    @Deprecated("Use setFloatingPet")
-    fun setAgentAvatar(avatarId: String) = setFloatingPet(avatarId)
 
     /** Set the global pet playback-speed multiplier (clamped 0.5×–1.5×). */
     fun setPetSpeed(speed: Float) {

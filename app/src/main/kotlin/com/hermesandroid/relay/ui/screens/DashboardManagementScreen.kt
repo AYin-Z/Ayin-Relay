@@ -7,10 +7,7 @@ import android.content.ContentResolver
 import android.graphics.Bitmap
 import android.net.Uri
 import android.provider.OpenableColumns
-import android.webkit.CookieManager
 import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
@@ -92,7 +89,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -116,14 +112,11 @@ import com.hermesandroid.relay.network.upstream.EncryptedDashboardCookieStore
 import com.hermesandroid.relay.network.upstream.DashboardApiClient
 import com.hermesandroid.relay.network.upstream.DashboardCustomEndpointDraft
 import com.hermesandroid.relay.network.upstream.McpOAuthFlowCoordinator
-import com.hermesandroid.relay.network.upstream.DashboardCookieStore
 import com.hermesandroid.relay.network.upstream.CronCreationDraft
-import com.hermesandroid.relay.network.upstream.DashboardAuthProvider
 import com.hermesandroid.relay.network.upstream.DashboardAuthSession
 import com.hermesandroid.relay.network.upstream.DashboardComponentHealthRollup
 import com.hermesandroid.relay.network.upstream.DashboardStatus
 import com.hermesandroid.relay.network.upstream.parseFiniteRepeat
-import com.hermesandroid.relay.network.upstream.importDashboardCookieHeader
 import com.hermesandroid.relay.ui.components.RelayChromeIconButton
 import com.hermesandroid.relay.ui.components.RelayMetricCard
 import com.hermesandroid.relay.ui.components.RelayNavTile
@@ -3093,253 +3086,6 @@ internal suspend fun invalidateDashboardManageCache(cacheDir: java.io.File) {
 }
 
 @Composable
-private fun DashboardSignInCard(
-    dashboardUrl: String,
-    providers: List<DashboardAuthProvider>,
-    actionInFlight: Boolean,
-    actionMessage: String?,
-    onSignIn: (String, String, String) -> Unit,
-    onOAuthSignIn: (DashboardAuthProvider) -> Unit,
-    routeHint: String? = null,
-) {
-    var username by remember { mutableStateOf("") }
-    var password by remember { mutableStateOf("") }
-    val passwordProvider = providers.firstOrNull { it.supportsPassword }
-    val redirectProviders = providers.filter { it.isRedirectProvider }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceVariant,
-        ),
-    ) {
-        Column(
-            modifier = Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Text(
-                text = stringResource(R.string.dashboard_signin_required_title),
-                style = MaterialTheme.typography.titleMedium,
-            )
-            Text(
-                text = stringResource(R.string.dashboard_signin_required_body, dashboardUrl),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            if (routeHint != null) {
-                // Same per-host cookie reality the voice gate explains:
-                // a sign-in on the home host does not authenticate this
-                // one. Without this strip, a user who signed in at home
-                // reads the prompt above as a broken session.
-                Text(
-                    text = stringResource(R.string.dashboard_signin_route_hint, routeHint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onTertiaryContainer,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(
-                            MaterialTheme.colorScheme.tertiaryContainer,
-                            appearanceRoundedCornerShape(8.dp),
-                        )
-                        .padding(10.dp),
-                )
-            }
-
-            redirectProviders.forEach { provider ->
-                Button(
-                    onClick = { onOAuthSignIn(provider) },
-                    enabled = !actionInFlight,
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(stringResource(R.string.dashboard_signin_with_provider, provider.displayName ?: provider.name))
-                }
-            }
-
-            if (passwordProvider != null || providers.isEmpty()) {
-                if (redirectProviders.isNotEmpty()) {
-                    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.24f))
-                }
-                Text(
-                    text = passwordProvider?.displayName ?: stringResource(R.string.dashboard_username_password),
-                    style = MaterialTheme.typography.labelLarge,
-                )
-                OutlinedTextField(
-                    value = username,
-                    onValueChange = { username = it },
-                    label = { Text(stringResource(R.string.dashboard_username)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                )
-                OutlinedTextField(
-                    value = password,
-                    onValueChange = { password = it },
-                    label = { Text(stringResource(R.string.dashboard_password)) },
-                    modifier = Modifier.fillMaxWidth(),
-                    singleLine = true,
-                    visualTransformation = PasswordVisualTransformation(),
-                )
-                Button(
-                    onClick = { onSignIn(passwordProvider?.name ?: "basic", username, password) },
-                    enabled = !actionInFlight && username.isNotBlank() && password.isNotBlank(),
-                    modifier = Modifier.fillMaxWidth(),
-                ) {
-                    Text(if (actionInFlight) stringResource(R.string.dashboard_signing_in) else stringResource(R.string.dashboard_sign_in))
-                }
-            } else if (redirectProviders.isEmpty()) {
-                Text(
-                    text = stringResource(R.string.dashboard_no_supported_provider),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-            actionMessage?.let { message ->
-                val isError = message.contains("failed", ignoreCase = true) ||
-                    message.contains("not accepted", ignoreCase = true) ||
-                    message.contains("not return", ignoreCase = true)
-                Text(
-                    text = message,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = if (isError) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun DashboardOAuthSignInDialog(
-    dashboardUrl: String,
-    provider: DashboardAuthProvider,
-    cookieStoreFactory: () -> DashboardCookieStore,
-    clientFactory: () -> DashboardApiClient,
-    onDismiss: () -> Unit,
-    onAuthenticated: (DashboardAuthSession) -> Unit,
-    onError: (String) -> Unit,
-) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var statusText by remember {
-        mutableStateOf(context.getString(R.string.dashboard_oauth_initial_status))
-    }
-    var checking by remember { mutableStateOf(false) }
-    val loginUrl = remember(dashboardUrl, provider.name) {
-        DashboardApiClient.authLoginUrl(
-            baseUrl = dashboardUrl,
-            provider = provider.name,
-            next = DashboardApiClient.authLandingPath(dashboardUrl),
-        )
-    }
-
-    fun maybeImportAndVerify(url: String?) {
-        val loadedUrl = url?.takeIf { it.isNotBlank() } ?: return
-        if (!isDashboardReturnUrl(dashboardUrl, loadedUrl) || isDashboardAuthFlowUrl(dashboardUrl, loadedUrl)) {
-            return
-        }
-        val cookieManager = CookieManager.getInstance()
-        cookieManager.flush()
-        val imported = importDashboardCookieHeader(
-            store = cookieStoreFactory(),
-            url = loadedUrl,
-            cookieHeader = cookieManager.getCookie(loadedUrl),
-        )
-        if (checking || imported == 0) return
-
-        checking = true
-        statusText = context.getString(R.string.dashboard_oauth_verifying)
-        scope.launch {
-            try {
-                val session = withDashboardClient(clientFactory = clientFactory) { client ->
-                    client.currentSession().getOrNull()
-                }
-                if (session?.authenticated == true) {
-                    onAuthenticated(session)
-                } else {
-                    checking = false
-                    statusText = context.getString(R.string.dashboard_oauth_not_accepted)
-                }
-            } catch (e: Exception) {
-                checking = false
-                val message = e.message ?: context.getString(R.string.dashboard_oauth_verify_failed)
-                statusText = message
-                onError(message)
-            }
-        }
-    }
-
-    Dialog(onDismissRequest = onDismiss) {
-        Card(
-            modifier = Modifier
-                .fillMaxWidth()
-                .heightIn(max = 640.dp),
-        ) {
-            Column(
-                modifier = Modifier.padding(12.dp),
-                verticalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = stringResource(R.string.dashboard_signin_with_provider, provider.displayName ?: provider.name),
-                            style = MaterialTheme.typography.titleMedium,
-                        )
-                        Text(
-                            text = dashboardUrl,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(
-                            imageVector = Icons.Filled.Close,
-                            contentDescription = stringResource(R.string.dashboard_close_signin),
-                        )
-                    }
-                }
-                Text(
-                    text = statusText,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                AndroidView(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    factory = { viewContext ->
-                        CookieManager.getInstance().setAcceptCookie(true)
-                        WebView(viewContext).apply {
-                            settings.javaScriptEnabled = true
-                            settings.domStorageEnabled = true
-                            webViewClient = object : WebViewClient() {
-                                override fun shouldOverrideUrlLoading(
-                                    view: WebView,
-                                    request: WebResourceRequest,
-                                ): Boolean = false
-
-                                override fun onPageFinished(view: WebView, url: String?) {
-                                    super.onPageFinished(view, url)
-                                    maybeImportAndVerify(url)
-                                }
-                            }
-                            loadUrl(loginUrl)
-                        }
-                    },
-                )
-            }
-        }
-    }
-}
-
-@Composable
 private fun ActionMessageCard(message: String) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -3457,19 +3203,6 @@ private fun DashboardDetailDialog(
             }
         },
     )
-}
-
-private fun isDashboardReturnUrl(dashboardUrl: String, loadedUrl: String): Boolean {
-    val root = dashboardUrl.trim().trimEnd('/')
-    return root.isNotBlank() && loadedUrl.trim().startsWith(root, ignoreCase = true)
-}
-
-private fun isDashboardAuthFlowUrl(dashboardUrl: String, loadedUrl: String): Boolean {
-    val root = dashboardUrl.trim().trimEnd('/')
-    val relative = loadedUrl.trim().removePrefix(root)
-    return relative.startsWith("/login", ignoreCase = true) ||
-        relative.startsWith("/auth/login", ignoreCase = true) ||
-        relative.startsWith("/auth/callback", ignoreCase = true)
 }
 
 private data class ExpensiveModelConfirm(
