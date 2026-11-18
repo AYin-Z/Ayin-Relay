@@ -1,22 +1,4 @@
-import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
-
 import { defineConfig } from 'vitepress'
-
-// Single source of truth for the displayed version: read appVersionName from
-// the Android version catalog at docs-build time so the nav badge can never
-// drift from the shipped app. Returns '' (badge hidden) on any failure.
-function resolveAppVersion(): string {
-  try {
-    const tomlPath = fileURLToPath(new URL('../../gradle/libs.versions.toml', import.meta.url))
-    const match = readFileSync(tomlPath, 'utf-8').match(/^appVersionName\s*=\s*"([^"]+)"/m)
-    return match ? match[1] : ''
-  } catch {
-    return ''
-  }
-}
-
-const appVersion = resolveAppVersion()
 
 type LocalizedThemeCopy = {
   label: string
@@ -50,7 +32,7 @@ function localizedTheme(prefix: string, copy: LocalizedThemeCopy) {
       { text: copy.installation, link: `/${prefix}/guide/getting-started` },
       { text: copy.troubleshooting, link: `/${prefix}/guide/troubleshooting` },
       { text: copy.englishReference, link: '/reference/api' },
-      { text: 'GitHub', link: 'https://github.com/Codename-11/hermes-relay' },
+      { text: 'GitHub', link: 'https://github.com/AYin-Z/Ayin-Relay' },
     ],
     sidebar: {
       [`/${prefix}/`]: [
@@ -128,8 +110,8 @@ const localizedThemes = {
 
 export default defineConfig({
   base: '/docs/',
-  title: 'Hermes-Relay',
-  description: 'Hermes-Relay — the Android companion and remote-hands CLI for your Hermes agent. Runs on your machine; lives on your devices.',
+  title: 'Ayin-Relay',
+  description: 'Enroll and manage Windows nodes in the Ayin system.',
 
   locales: {
     root: { label: 'English', lang: 'en' },
@@ -190,23 +172,12 @@ export default defineConfig({
     },
 
     nav: [
-      {
-        text: 'Surfaces',
-        items: [
-          { text: 'Android (companion)', link: '/guide/' },
-          { text: 'CLI (remote hands)', link: '/desktop/' },
-        ],
-      },
-      { text: 'Features', link: '/features/' },
-      { text: 'Architecture', link: '/architecture/' },
-      { text: 'Reference', link: '/reference/api' },
-      { text: 'GitHub', link: 'https://github.com/Codename-11/hermes-relay' },
+      { text: 'Install a Windows node', link: 'https://github.com/AYin-Z/Ayin-Relay/blob/dev/desktop/connector/README.md' },
+      { text: 'Architecture', link: 'https://github.com/AYin-Z/Ayin-Relay/blob/dev/docs/spec.md' },
+      { text: 'Legacy guides', link: '/guide/' },
+      { text: 'Relay API', link: '/reference/relay-api' },
+      { text: 'GitHub', link: 'https://github.com/AYin-Z/Ayin-Relay' },
       { text: 'Privacy', link: '/privacy' },
-      // Release badge — derived from gradle/libs.versions.toml, links to the
-      // GitHub Releases list. Hidden if the version couldn't be resolved.
-      ...(appVersion
-        ? [{ text: `v${appVersion}`, link: 'https://github.com/Codename-11/hermes-relay/releases' }]
-        : []),
     ],
 
     sidebar: {
@@ -309,11 +280,10 @@ export default defineConfig({
     },
 
     socialLinks: [
-      { icon: 'github', link: 'https://github.com/Codename-11/hermes-relay' },
+      { icon: 'github', link: 'https://github.com/AYin-Z/Ayin-Relay' },
     ],
 
     footer: {
-      message: 'Built for <a href="https://hermes-agent.nousresearch.com">Hermes Agent</a> by <a href="https://codename-11.dev">Axiom-Labs</a>',
       copyright: 'MIT License',
     },
 

@@ -26,11 +26,12 @@ phone-control or general Relay session routes.
 
 | Method | Route | Auth | Purpose |
 |---|---|---|---|
-| `GET` upgrade | `/ws`, `/` | Pairing code or paired session | Multiplexed phone connection |
+| `GET` upgrade | `/ws`, `/` | Pairing code or paired session | Authenticated node or compatible client connection |
 | `GET` | `/health` | Public probe | Version, readiness and connected-client summary |
 | `GET` | `/secure-link/preflight` | Loopback | Read-only setup report for the proposed `host` and `port`: prerequisites, certificate checks, startup settings, and restart impact. Never writes configuration, rotates keys, or restarts services. |
 | `POST` | `/pairing` | Rate-limited public setup | Create a relay-side pairing code |
 | `POST` | `/pairing/register` | Loopback | Register a host-minted code and policy metadata |
+| `POST` | `/connector/invite` | Loopback operator | Issue a short-lived, single-use Windows enrollment invitation for the authenticated download portal |
 | `POST` | `/pairing/mint` | Loopback | Mint a signed QR payload for dashboard/CLI pairing |
 | `POST` | `/pairing/approve` | Loopback, reserved | Future host-approval direction |
 
@@ -96,7 +97,8 @@ enables the temporary insecure-LAN escape hatch.
 
 | Route family | Auth | Purpose |
 |---|---|---|
-| `/desktop/_ping`, `/desktop/health`, `/desktop/{tool_name}` | Paired desktop grant | Desktop CLI tool dispatch and readiness |
+| `/desktop/_ping`, `/desktop/health`, `/desktop/{tool_name}` | Loopback | Dispatch to a connected Windows node and inspect its readiness |
+| `/desktop/transfer/push`, `/desktop/transfer/pull` | Loopback | Stream a file between the Relay host and the selected Windows node under its file-access policy |
 | `/notifications/recent` | Loopback or paired | Bounded recent notification companion state |
 | `/phone/message`, `/phone/replies` | Platform/paired path | Agent-to-phone messages and phone replies |
 | `/phone/outbound`, `/phone/threads` | Paired | Outbound queue and conversation state |
@@ -207,6 +209,7 @@ standard advisory choices available and never blocks model selection or chat.
 | `GET/PATCH` | `/relay/security` | Loopback | Runtime security toggles |
 | `GET` | `/bridge/status` | Loopback | Device, bridge and safety state |
 | `GET` | `/bridge/activity` | Loopback | Recent bridge activity |
+| `POST` | `/calendar` | Paired bridge grant | Forward calendar operations for existing phone integrations |
 | `GET` | `/bridge/devices` | Loopback | Connected bridge-device inventory |
 | `POST` | `/bridge/select-active` | Loopback | Select the active bridge device |
 | `GET` | `/relay/update-check` | Loopback | Plugin update status |

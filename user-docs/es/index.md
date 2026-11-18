@@ -2,40 +2,18 @@
 layout: home
 translation_status: ai-translated
 canonical_source: /
-title: Hermes-Relay
-titleTemplate: Documentación de Hermes-Relay en español
 
 hero:
-  name: Documentación
-  text: Empieza por el dispositivo que quieres conectar.
-  tagline: Conecta Android y la CLI con tu Hermes Agent y añade la extensión Relay recomendada para el conjunto completo de funciones actuales.
+  name: Ayin-Relay
+  text: Nodos Windows para AyinServer
+  tagline: Registra un nodo Windows y administra su conexión al sistema Ayin.
   actions:
     - theme: brand
-      text: Inicio rápido de Android
-      link: /es/guide/quick-start
+      text: Instalar un nodo Windows
+      link: https://github.com/AYin-Z/Ayin-Relay/blob/dev/desktop/connector/README.md
     - theme: alt
-      text: Instalación
-      link: /es/guide/getting-started
-    - theme: alt
-      text: Referencia en inglés
-      link: /reference/api
-
-features:
-  - title: Hermes estándar es suficiente
-    details: Chat, Manage y la voz estándar se conectan directamente a un Hermes Agent sin modificar.
-  - title: Dos versiones claras
-    details: Google Play es la opción recomendada. Sideload añade Device Control para leer la pantalla, tocar y navegar.
-  - title: Relay se recomienda para la experiencia completa
-    details: Upstream sigue siendo estándar para Chat, Manage y voz; Relay añade Terminal/TUI, notificaciones, medios, herramientas de escritorio y Device Control.
+      text: Arquitectura
+      link: https://github.com/AYin-Z/Ayin-Relay/blob/dev/docs/spec.md
 ---
 
-## Alcance de esta traducción
-
-Esta traducción asistida por IA cubre los primeros pasos, la instalación, la
-elección de la aplicación y los problemas más frecuentes. Las referencias de
-API, arquitectura, seguridad y CLI que cambian rápidamente siguen teniendo su
-fuente canónica en inglés.
-
-[Inicio rápido →](/es/guide/quick-start) ·
-[Solución de problemas →](/es/guide/troubleshooting) ·
-[Referencia en inglés →](/reference/api)
+Las guías anteriores de Hermes y del teléfono describen la compatibilidad y las versiones anteriores.
