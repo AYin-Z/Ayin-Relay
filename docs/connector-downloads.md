@@ -95,7 +95,7 @@ overwrite a paired identity.
 
 Build the two signed artifacts with the [Windows release command](../RELEASE.md#windows-signatures-and-updates), then verify the signed candidate on a clean Windows machine. Pin the SHA-256 of the finished, signed EXE and the SHA-256 of its publisher certificate in DER form. Place the EXE and trusted PEM bundles outside the web root. Keep the signing key with the signing provider.
 
-Add these fields to the existing portal configuration while retaining the ZIP path:
+The [deployment staging command](../RELEASE.md#stage-the-signed-configuration) prepares these fields in a copy of the existing portal configuration while retaining the ZIP path:
 
 ```json
 {

@@ -40,6 +40,24 @@ The output contains the signed node `hermes-relay-win-x64.exe`, the signed priva
 
 Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. A Windows x64 node update also matches the signed executable's product and exact version to the selected release. Cooperative swaps verify the saved hash and release version again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
 
+## Stage the signed configuration
+
+Use the Ayin-Relay server's Python environment on the staging host, with `osslsigncode` and `7z` available. Prepare both configurations from the signed release directory and the intended portal's existing owner-only configuration. Pin the approved commit and publisher from the release approval.
+
+```sh
+python scripts/prepare-windows-connector-deployment.py \
+  --release-dir "$SIGNED_RELEASE_DIR" \
+  --portal-config "$EXISTING_PORTAL_CONFIG" \
+  --source-sha "$RELEASE_COMMIT_SHA" \
+  --publisher-sha256 "$CODE_SIGNING_CERTIFICATE_SHA256" \
+  --trust-bundle "$PUBLISHER_CA_BUNDLE" \
+  --timestamp-trust-bundle "$TIMESTAMP_CA_BUNDLE" \
+  --device-id "$PILOT_INSTALLATION_UUID" \
+  --output "$STAGED_CONFIG_DIR"
+```
+
+Repeat `--device-id` for each approved installation. The command verifies both signatures and checks the enrollment origin, embedded release manifest and embedded node bytes before staging `portal.json` and `windows-release-offer.json`. It retains the existing Access policy and ZIP fallback. Use the new files to configure staging after review and confirm the signed installer on Windows before switching production.
+
 ## Windows device evidence
 
 Use a designated Windows x64 test installation signed by the approved publisher. Capture evidence while signed in as the connector user, after downloading the exact installer from the authenticated portal and completing setup. The read-only check inspects the installed binary, task, live process and fresh connection. The JSON contains a digest of the installation identity and omits credentials.
