@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""Build a credential-free Windows connector template for the private portal.
+"""Build a credential-free Windows connector ZIP or an unsigned single EXE.
 
-Only the fixed installer allowlist, the supplied binary and its manifest enter
-this ZIP. Per-download setup.json is added later by the authenticated portal.
+The ZIP receives setup.json later from the authenticated portal. The EXE embeds
+only release settings and requires browser approval before installing.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+from hashlib import file_digest
 import json
 import os
 from pathlib import Path
 import re
+import shutil
 import stat
+import subprocess
 import tempfile
 from typing import BinaryIO
+from urllib.parse import urlsplit
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -86,12 +90,65 @@ def package_template(binary: Path, output: Path, source_sha: str, version: str) 
             temporary.unlink(missing_ok=True)
 
 
+def browser_settings(portal: str, relay_url: str) -> dict[str, str]:
+    for value, scheme in ((portal, "https"), (relay_url, "wss")):
+        url = urlsplit(value)
+        if (url.scheme != scheme or not url.hostname or url.username is not None
+                or url.password is not None or url.query or url.fragment
+                or re.search(r"[\x00-\x20\x7f\\]", value) or not value.isascii()):
+            raise ValueError(f"expected a credential-free {scheme.upper()} endpoint")
+        # Reading the port also rejects out-of-range and non-numeric ports.
+        _ = url.port
+    if re.fullmatch(r"/[a-zA-Z0-9/_-]+/private/enroll", urlsplit(portal).path) is None:
+        raise ValueError("expected the private browser enrollment path")
+    return {"portal": portal, "relay_url": relay_url}
+
+
+def package_exe(binary: Path, output: Path, source_sha: str, version: str,
+                portal: str, relay_url: str, makensis: str) -> dict[str, str]:
+    if not _SOURCE_SHA.fullmatch(source_sha):
+        raise ValueError("source-sha must be a full 40- or 64-character Git commit SHA")
+    if not _VERSION.fullmatch(version):
+        raise ValueError("version must be a semantic version")
+    if output.suffix.lower() != ".exe":
+        raise ValueError("browser installer output must end in .exe")
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f"output already exists: {output}")
+    endpoints = browser_settings(portal, relay_url)
+    with tempfile.TemporaryDirectory(prefix=".relay-setup-", dir=output.parent) as temporary:
+        stage = Path(temporary).resolve()
+        payload = stage / "hermes-relay.exe"
+        with binary.open("rb") as source, payload.open("xb") as target:
+            if not stat.S_ISREG(os.fstat(source.fileno()).st_mode) or source.read(2) != b"MZ":
+                raise ValueError("the Windows payload must be a PE executable")
+            source.seek(0)
+            shutil.copyfileobj(source, target)
+        with payload.open("rb") as source:
+            manifest = {"sha256": file_digest(source, "sha256").hexdigest(),
+                        "source_sha": source_sha.lower(), "version": version}
+        for name in ("launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd"):
+            (stage / name).write_bytes(installer_bytes(name))
+        (stage / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+        (stage / "portal.json").write_text(json.dumps(endpoints), encoding="utf-8")
+        candidate = stage / "candidate.exe"
+        switch = "/" if os.name == "nt" else "-"
+        version_num = re.split(r"[-+]", version, maxsplit=1)[0] + ".0"
+        subprocess.run([makensis, f"{switch}DPAYLOAD={stage}", f"{switch}DOUTPUT={candidate}",
+                        f"{switch}DVERSION_NUM={version_num}", str(INSTALLER_DIR / "setup.nsi")],
+                       check=True)
+        os.link(candidate, output)
+        return manifest
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", required=True, type=Path, help="compiled Windows connector CLI")
-    parser.add_argument("--output", required=True, type=Path, help="new template ZIP; existing files are never overwritten")
+    parser.add_argument("--output", required=True, type=Path, help="new template ZIP or unsigned installer EXE")
     parser.add_argument("--source-sha", required=True, help="full Git SHA used to build the binary and installer")
     parser.add_argument("--version", help="desktop semantic version; defaults to desktop/package.json")
+    parser.add_argument("--browser-portal", help="HTTPS /private/enroll URL to embed in the EXE")
+    parser.add_argument("--relay-url", help="expected WSS identity for browser enrollment")
+    parser.add_argument("--makensis", default="makensis", help="NSIS compiler path for EXE assembly")
     args = parser.parse_args(argv)
     try:
         version = args.version
@@ -99,8 +156,16 @@ def main(argv: list[str] | None = None) -> int:
             version = json.loads((ROOT / "desktop" / "package.json").read_text(encoding="utf-8"))["version"]
         if not isinstance(version, str):
             raise ValueError("desktop package version must be a string")
-        manifest = package_template(args.binary, args.output, args.source_sha, version)
-    except (OSError, ValueError, KeyError, zipfile.BadZipFile) as exc:
+        if args.browser_portal is not None or args.relay_url is not None:
+            if not args.browser_portal or not args.relay_url:
+                raise ValueError("EXE assembly requires both --browser-portal and --relay-url")
+            manifest = package_exe(args.binary, args.output, args.source_sha, version,
+                                   args.browser_portal, args.relay_url, args.makensis)
+        else:
+            if args.output.suffix.lower() == ".exe":
+                raise ValueError("EXE assembly requires both --browser-portal and --relay-url")
+            manifest = package_template(args.binary, args.output, args.source_sha, version)
+    except (OSError, ValueError, KeyError, zipfile.BadZipFile, subprocess.CalledProcessError) as exc:
         parser.exit(1, f"Connector template packaging failed: {exc}\n")
     print(f"Created {args.output} (binary SHA-256 {manifest['sha256']}, source {manifest['source_sha']})")
     return 0

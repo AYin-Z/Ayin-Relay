@@ -1,8 +1,12 @@
 // Headless setup consumes an operator-issued file, never a credential in argv.
-import { readFile } from 'node:fs/promises'
+import { execFile } from 'node:child_process'
+import { readFile, writeFile } from 'node:fs/promises'
+import { isAbsolute, win32 } from 'node:path'
+import { promisify } from 'node:util'
 
 import type { ParsedArgs } from '../cli.js'
 import { desktopRelayIdentity } from '../deviceIdentity.js'
+import { receiveBrowserEnrollment } from '../lib/browserEnrollment.js'
 import { canonicalRelayUrl, getHostAccessMode, setHostAccessMode } from '../lib/hostAccessPolicy.js'
 import { isPidAlive, readDaemonStatus } from '../lib/daemonStatus.js'
 import { getSession, saveSession, type RemoteSessionRecord } from '../remoteSessions.js'
@@ -44,11 +48,44 @@ export function isPermanentConnectorSession(session: RemoteSessionRecord | null)
     session.grants?.desktop === null && Object.keys(session.grants).length === 1
 }
 
+async function prepareBrowserSetup(args: ParsedArgs): Promise<number> {
+  const portal = args.flags['prepare-browser']
+  const remote = args.flags.remote
+  const output = args.flags.setup
+  if (process.platform !== 'win32' || typeof portal !== 'string' ||
+      typeof remote !== 'string' || typeof output !== 'string' || !isAbsolute(output) ||
+      args.flags['grant-tools'] !== undefined) {
+    process.stderr.write('Browser preparation requires Windows, --prepare-browser <https-url>, --remote <wss-url> and --setup <private-file>.\n')
+    return 1
+  }
+  try {
+    const setup = await receiveBrowserEnrollment(portal, remote, async ({ url, confirmationCode }) => {
+      process.stdout.write(`Browser confirmation code: ${confirmationCode}\n`)
+      const powershell = win32.join(process.env.SystemRoot || 'C:\\Windows',
+        'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+      await promisify(execFile)(powershell, [
+        '-NoLogo', '-NoProfile', '-NonInteractive', '-Command',
+        'Start-Process -FilePath $env:AYIN_RELAY_APPROVAL_URI -ErrorAction Stop'
+      ], {
+        env: { ...process.env, AYIN_RELAY_APPROVAL_URI: url }, windowsHide: true, timeout: 10000
+      })
+    })
+    await writeFile(output, JSON.stringify(setup), { flag: 'wx', mode: 0o600 })
+    return 0
+  } catch {
+    // The portal URL, callback and private setup may contain ephemeral material.
+    process.stderr.write('Browser approval did not complete. Close this installer and try again.\n')
+    return 1
+  }
+}
+
 export async function connectorCommand(args: ParsedArgs): Promise<number> {
   if (args.flags.help) {
-    process.stdout.write('Usage: hermes-relay connector --setup <private-file.json> --grant-tools\n')
+    process.stdout.write('Usage: hermes-relay connector --setup <private-file.json> --grant-tools\n' +
+      '       hermes-relay connector --prepare-browser <https-url> --remote <wss-url> --setup <private-file.json>\n')
     return 0
   }
+  if (args.flags['prepare-browser'] !== undefined) return prepareBrowserSetup(args)
   const file = args.flags.setup
   if (typeof file !== 'string' || args.flags['grant-tools'] !== true) {
     process.stderr.write('Connector setup requires --setup <file> and explicit --grant-tools consent.\n')

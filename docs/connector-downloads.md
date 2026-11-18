@@ -34,7 +34,22 @@ The browser registration path keeps authenticated confirmation independent of th
 
 The portal returns the five-minute invitation to the installer's local listener. Relay accepts the invitation only with the original verifier. A bad proof leaves the invitation available to the original installer. Successful redemption consumes it and creates the usual revocable desktop-only authorization.
 
-Browser registration is disabled by default during migration. This server-side path requires a compatible installer that verifies the callback state, trusts the expected portal and Relay origins and keeps the verifier local. The public installer and the production download switch have separate Windows acceptance requirements.
+Browser registration is disabled by default during migration. The EXE installer keeps the verifier local, listens on an ephemeral port on `127.0.0.1`, and accepts only the matching callback for the configured Relay URL. It hands the resulting temporary setup file to the existing per-user installer after the browser confirmation. The installer's local capability confirmation still applies.
+
+### Build a candidate EXE
+
+Build the Windows node executable with `npm run build:bin:win` from `desktop/`. With NSIS available, run this from the repository root using your intended authenticated portal and its Relay URL.
+
+```sh
+python3 scripts/package-desktop-connector.py \
+  --binary desktop/dist/bin/hermes-relay-win-x64.exe \
+  --output Ayin-Relay-Setup-x64.exe \
+  --source-sha <commit-sha> \
+  --browser-portal https://admin.example.test/relay/private/enroll \
+  --relay-url wss://relay.example.test
+```
+
+The result is an unsigned test candidate. The published EXE requires Authenticode signing and Windows acceptance with the chosen publisher, portal, account and browser. The EXE uses the current per-user installation flow. Administrator-assisted legacy migration and pre-sign-in operation still require separate validation.
 
 ## Operator setup
 
