@@ -40,6 +40,23 @@ The output contains the signed node `hermes-relay-win-x64.exe`, the signed priva
 
 Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. A Windows x64 node update also matches the signed executable's product and exact version to the selected release. Cooperative swaps verify the saved hash and release version again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
 
+## Windows device evidence
+
+Use a designated Windows x64 test installation signed by the approved publisher. Capture evidence while signed in as the connector user, after downloading the exact installer from the authenticated portal and completing setup. The read-only check inspects the installed binary, task, live process and fresh connection. The JSON contains a digest of the installation identity and omits credentials.
+
+```powershell
+$expected = @{
+  ReleaseManifest = $env:RELEASE_MANIFEST
+  RelayUrl = $env:CONNECTOR_RELAY_URL
+}
+& .\desktop\connector\Test-ConnectorRelease.ps1 @expected -InstallerPath $env:DOWNLOADED_INSTALLER |
+  Set-Content -LiteralPath .\before-reboot.json -Encoding UTF8
+```
+
+Reboot and sign in without manually starting the connector. Run the same check with `-PreviousEvidence .\before-reboot.json -AfterReboot` and save the result as the baseline for the next rollout. The check requires a newer boot, execution of the installed startup task since that boot and a live connector with the same installation identity.
+
+After a managed update, pass the newer release manifest, the baseline report, the central rollout ID and `-RolloutResult applied`. For a deliberate rollback trial, pass the preserved release as `-ReleaseManifest`, the failed package as `-AttemptedReleaseManifest` and `-RolloutResult rolled_back`. Match the device result against the operator's rollout status. Manually verify the browser approval, expected elevation and cancellation behavior, local stop and uninstall. Record any checks that could not be exercised.
+
 ## Hotfix and back-merge
 
 Start from the deployed surface tag. Prepare and test the patch and release from the approved `main` hotfix result. After the stable release, the release-backmerge workflow checks a candidate that merges the published hotfix into the existing `dev` history. It fast-forwards `dev` only after checks pass on that exact tree and the base still matches. Conflicts, stale bases, failed checks and permissions failures require a reconciliation PR. Regular `dev` → `main` releases already contain the integration parent and need no extra back-merge.
