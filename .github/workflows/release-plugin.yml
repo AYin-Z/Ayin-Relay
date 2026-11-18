@@ -86,7 +86,7 @@ jobs:
 
       - name: Install test dependencies
         run: |
-          pip install -r relay_server/requirements.txt
+          pip install -e '.[connector-portal]'
           pip install pytest responses
 
       - name: Syntax check
@@ -106,6 +106,10 @@ jobs:
             plugin/tests/test_relay_security.py \
             plugin/tests/test_voice_routes.py \
             plugin/tests/test_session_grants.py \
+            plugin/tests/test_connector_authorization.py \
+            plugin/tests/test_connector_portal.py \
+            plugin/tests/test_desktop_rollout.py \
+            plugin/tests/test_node_release.py \
             plugin/tests/test_proactive_channel.py \
             plugin/tests/test_android_phone_status.py \
             plugin/tests/test_android_tool.py \
@@ -132,6 +136,23 @@ jobs:
         run: |
           pip install build
           python -m build
+
+      - name: Verify installed wheel and source distribution
+        env:
+          EXPECTED_RELEASE_VERSION: ${{ needs.validate.outputs.version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          smoke_root="$(mktemp -d "$RUNNER_TEMP/relay-distribution.XXXXXX")"
+          trap 'rm -rf "$smoke_root"' EXIT
+          for extension in whl tar.gz; do
+            artifact="$(realpath dist/*."$extension")"
+            venv="$smoke_root/$extension"
+            python -m venv "$venv"
+            "$venv/bin/python" -m pip install "$artifact[connector-portal]"
+            "$venv/bin/python" -m pip check
+            "$venv/bin/python" -I scripts/smoke-relay-distribution.py --expected-version "$EXPECTED_RELEASE_VERSION"
+          done
 
       - name: Generate checksums
         run: |

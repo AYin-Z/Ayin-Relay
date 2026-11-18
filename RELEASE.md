@@ -17,6 +17,12 @@ Use `python scripts/check-version-tracks.py` to validate versions. The two surfa
 
 The coordinated approval workflow can dispatch both surface approvals. Review status on the exact candidate tree. Production uses immutable stable tags.
 
+## Verify the server distribution
+
+The server release job installs the exact wheel and source distribution in independent environments with the `connector-portal` extra. Before publishing, it starts the installed Relay and download portal on loopback, checks the release version, confirms that the private download page requires authentication, and checks the retained `python -m relay_server` entry point. The check uses a temporary profile and does not require production credentials.
+
+To repeat the check manually, install the candidate with `[connector-portal]` in a fresh virtual environment and run `python -I scripts/smoke-relay-distribution.py --expected-version <release-version>` using that environment's interpreter.
+
 ## Windows signatures and updates
 
 Prepare the private installer and its node binary on an x64 Windows signing host with Git, Python 3.11+, Node/npm, the Bun version in `desktop/.bun-version`, NSIS and Windows SDK SignTool. The signing provider must expose the approved code-signing certificate and key through the current Windows user's personal certificate store. Supply the provider's HTTPS RFC 3161 timestamp URL and pin the certificate's SHA-256 DER fingerprint. [Windows SDK SignTool documentation](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
