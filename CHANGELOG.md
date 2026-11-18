@@ -19,6 +19,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Permanent device authorization replaces a previous finite expiry in saved sessions.
 - Windows background commands preserve quoted arguments, and daemon locks validate process identity before deciding whether a restart is blocked.
 - Desktop-only credentials cannot access server voice, media, profiles, or management routes.
+- Desktop heartbeat and diagnostics report input allowed by the host policy without requiring a temporary control grant.
+- Android links to the same Ayin-Relay privacy policy that its release checks verify.
 
 ## [Android 1.19.0] - 2026-10-20
 
