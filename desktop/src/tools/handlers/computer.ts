@@ -389,10 +389,11 @@ async function cuaAction(args: Record<string, unknown>, ctx: ToolContext): Promi
 }
 
 export const computerStatusHandler: ToolHandler = async (_args, ctx) => {
-  const grant = getActiveComputerGrant(ctx.controlSession)
+  const grant = getComputerGrantSummary(ctx.controlSession)
   const runtime = getComputerUseRuntimeSummary(ctx.controlSession)
   const inputBackendReady = runtime.consented === true && process.platform === 'win32'
-  const fullAccess = runtime.full_access === true
+  const hostPolicy = grant.mode === 'full_access' ? 'full_access'
+    : grant.mode === 'capability_allow' ? 'allowed_by_host_policy' : null
   const settings = readDesktopUseSettingsSync()
   const cua = settings.computer_control_engine === 'cua' ? await CuaDriverAdapter.status() : null
   const lifecycle = computerControlLifecycleStatus()
@@ -420,15 +421,15 @@ export const computerStatusHandler: ToolHandler = async (_args, ctx) => {
         : null
     },
     permissions: {
-      screenshot: fullAccess ? 'full_access' : grant ? 'granted' : 'grant_required',
-      input: fullAccess || grant?.mode === 'assist' || grant?.mode === 'control'
+      screenshot: hasComputerObserveGrant(ctx.controlSession) ? hostPolicy ?? 'granted' : 'grant_required',
+      input: hasComputerInputGrant(ctx.controlSession)
         ? inputBackendReady
-          ? fullAccess ? 'full_access' : 'granted_until_expiry'
+          ? hostPolicy ?? 'granted_until_expiry'
           : 'grant_active_but_input_backend_unavailable'
         : 'not_granted',
       accessibility: cua?.ready ? 'available' : 'unavailable'
     },
-    grant: getComputerGrantSummary(ctx.controlSession),
+    grant,
     overlay: {
       visible: ctx.interactive,
       state: ctx.interactive ? 'cli_grant_prompt_available' : 'not_available',

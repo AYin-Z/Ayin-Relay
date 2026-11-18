@@ -40,6 +40,7 @@ import { readDesktopUseSettingsSync } from '../lib/desktopUseSettings.js'
 import {
   getComputerGrantSummary,
   getComputerUseRuntimeSummary,
+  hasComputerInputGrant,
   initializeComputerControlSession,
   revokeComputerControlSession
 } from './computerGrants.js'
@@ -436,16 +437,16 @@ export class DesktopToolRouter {
       if (this.advertisedTools.some(name => name.startsWith('desktop_computer_'))) {
         const runtime = getComputerUseRuntimeSummary(this.controlAuthority)
         const grant = getComputerGrantSummary(this.controlAuthority)
-        const inputGrantActive =
-          grant.active === true && (grant.mode === 'assist' || grant.mode === 'control')
+        const inputReady = process.platform === 'win32' && runtime.consented === true &&
+          hasComputerInputGrant(this.controlAuthority)
         payload.computer_use = {
           stage: 'experimental',
           protocol_version: 2,
           enabled: true,
           capabilities: ['status', 'screenshot', 'grant_request', 'cancel', 'action'],
           input:
-            runtime.consented === true && inputGrantActive && process.platform === 'win32'
-              ? 'available_until_grant_expiry'
+            inputReady
+              ? grant.expires_at === null ? 'available_by_host_policy' : 'available_until_grant_expiry'
               : this.interactive
                 ? 'grant_approval_prompt_available'
                 : 'blocked_headless',
