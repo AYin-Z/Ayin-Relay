@@ -99,11 +99,15 @@ enables the temporary insecure-LAN escape hatch.
 |---|---|---|
 | `/desktop/_ping`, `/desktop/health`, `/desktop/{tool_name}` | Loopback | Dispatch to a connected Windows node and inspect its readiness |
 | `/desktop/rollout/preflight` | Direct loopback operator | Report the current state of explicitly selected Windows installation IDs before a planned rollout |
+| `/desktop/rollout/release` | Selected Windows connector bearer | Fetch the configured offer's version, SHA-256, byte size, platform and architecture |
+| `/desktop/rollout/releases/{version}/{sha256}` | Selected Windows connector bearer | Fetch the exact approved Windows x64 executable |
 | `/desktop/transfer/push`, `/desktop/transfer/pull` | Loopback | Stream a file between the Relay host and the selected Windows node under its file-access policy |
 | `/notifications/recent` | Loopback or paired | Bounded recent notification companion state |
 | `/phone/message`, `/phone/replies` | Platform/paired path | Agent-to-phone messages and phone replies |
 | `/phone/outbound`, `/phone/threads` | Paired | Outbound queue and conversation state |
 | `/context/injected` | Paired | Inspect bounded Relay-injected context |
+
+Both release routes use `GET` and require HTTPS or a loopback peer. A current desktop-only session must match an installation UUID selected by the operator. Responses containing release metadata or files use `Cache-Control: no-store`.
 
 `POST /phone/message` always persists the message in Android's bounded Thread
 cache. Its optional `surfacing` hint controls the additional presentation:

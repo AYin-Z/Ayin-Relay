@@ -33,7 +33,7 @@ from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, w
 import jwt
 from multidict import MultiMapping
 
-from .installer_release import InstallerRelease
+from .installer_release import InstallerRelease, read_owner_json
 from .relay.auth import (
     BROWSER_ENROLLMENT_TTL_SECONDS,
     DESKTOP_INVITE_TTL_SECONDS,
@@ -114,18 +114,7 @@ class PortalConfig:
 
     @classmethod
     def from_file(cls, path: Path) -> PortalConfig:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-        with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
-            info = os.fstat(stream.fileno())
-            if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077
-                    or info.st_uid not in (os.getuid(), 0)):
-                raise ValueError("configuration must be owner-only and owned by service user or root")
-            raw = stream.read(_MAX_JSON_BYTES + 1)
-        if len(raw) > _MAX_JSON_BYTES:
-            raise ValueError("configuration too large")
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("configuration must be an object")
+        data = read_owner_json(path, _MAX_JSON_BYTES)
         data["base_zip_path"] = Path(data["base_zip_path"])
         if data.get("installer_exe") is not None:
             data["installer_exe"] = InstallerRelease.from_mapping(data["installer_exe"])

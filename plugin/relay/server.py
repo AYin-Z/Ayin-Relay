@@ -42,6 +42,7 @@ import sys
 import tempfile
 import time
 import uuid
+from collections.abc import AsyncIterator
 from typing import Any
 from urllib.parse import urlparse
 
@@ -71,6 +72,7 @@ from .channels.terminal import TerminalHandler
 from .channels.tui import TuiHandler
 from .config import RelayConfig
 from .desktop_rollout import node_observation, parse_preflight
+from .node_release import NODE_FILENAME, PublishedNodeRelease, load_published_node_release
 from .secure_proxy import (
     SECURE_LINK_CAPABILITIES,
     SECURE_LINK_DESCRIPTION,
@@ -1520,6 +1522,76 @@ async def handle_desktop_rollout_preflight(request: web.Request) -> web.Response
     ]
     return web.json_response({"version": version, "observed_at": now, "nodes": nodes},
                              headers={"Cache-Control": "no-store"})
+
+
+_WINDOWS_RELEASE_KEY = web.AppKey("windows_node_release", PublishedNodeRelease)
+_RELEASE_NO_STORE = {"Cache-Control": "no-store"}
+
+
+async def _windows_release_context(app: web.Application) -> AsyncIterator[None]:
+    config = app["server"].config.windows_release_offer
+    if config is None:
+        yield
+        return
+    with tempfile.TemporaryDirectory(prefix="ayin-relay-node-release-") as directory:
+        try:
+            app[_WINDOWS_RELEASE_KEY] = await asyncio.to_thread(
+                load_published_node_release, Path(config), Path(directory),
+            )
+        except (OSError, ValueError, TypeError):
+            logger.error("Windows node release offer unavailable after verification")
+        yield
+
+
+def _approved_release_for_device(request: web.Request) -> PublishedNodeRelease:
+    release = request.app.get(_WINDOWS_RELEASE_KEY)
+    if release is None:
+        raise web.HTTPNotFound(text="no active Windows release offer", headers=_RELEASE_NO_STORE)
+    if not request.secure and request.remote not in ("127.0.0.1", "::1"):
+        raise web.HTTPForbidden(text="HTTPS required", headers=_RELEASE_NO_STORE)
+    auth = request.headers.getall("Authorization", [])
+    if len(auth) != 1 or not auth[0].startswith("Bearer "):
+        raise web.HTTPUnauthorized(text="Windows connector bearer required", headers=_RELEASE_NO_STORE)
+    token = auth[0][len("Bearer "):].strip()
+    server: RelayServer = request.app["server"]
+    session = server.sessions.get_session(token) if token else None
+    if session is None:
+        raise web.HTTPUnauthorized(text="invalid connector bearer", headers=_RELEASE_NO_STORE)
+    if (not session.desktop_only or session.channel_is_expired("desktop")
+            or session.device_id not in release.device_ids):
+        raise web.HTTPForbidden(text="release not assigned to this connector", headers=_RELEASE_NO_STORE)
+    return release
+
+
+async def handle_windows_release_offer(request: web.Request) -> web.Response:
+    release = _approved_release_for_device(request)
+    return web.json_response({
+        "version": release.version, "sha256": release.sha256, "size": release.size,
+        "platform": "win32", "arch": "x64",
+    }, headers=_RELEASE_NO_STORE)
+
+
+async def handle_windows_release_download(request: web.Request) -> web.StreamResponse:
+    release = _approved_release_for_device(request)
+    if (request.match_info["version"], request.match_info["sha256"]) != (release.version, release.sha256):
+        raise web.HTTPNotFound(text="release version and digest are not assigned", headers=_RELEASE_NO_STORE)
+    if release.active_downloads >= 2:
+        raise web.HTTPServiceUnavailable(text="Windows update download busy", headers={**_RELEASE_NO_STORE, "Retry-After": "10"})
+    release.active_downloads += 1
+    try:
+        with release.path.open("rb") as source:
+            response = web.StreamResponse(headers={
+                "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff",
+                "Content-Type": "application/octet-stream", "Content-Length": str(release.size),
+                "Content-Disposition": f'attachment; filename="{NODE_FILENAME}"',
+            })
+            await response.prepare(request)
+            while chunk := source.read(256 * 1024):
+                await response.write(chunk)
+            await response.write_eof()
+            return response
+    finally:
+        release.active_downloads -= 1
 
 
 async def handle_desktop_dispatch(request: web.Request) -> web.Response:
@@ -5102,6 +5174,7 @@ def create_app(config: RelayConfig) -> web.Application:
 
     server = RelayServer(config)
     app["server"] = server
+    app.cleanup_ctx.append(_windows_release_context)
     app.on_startup.append(_on_secure_proxy_startup)
 
     # Routes — /ws is canonical but we also accept "/" as an alias so clients
@@ -5138,6 +5211,8 @@ def create_app(config: RelayConfig) -> web.Application:
     # wildcard route or aiohttp swallows it.
     app.router.add_get("/desktop/health", handle_desktop_health)
     app.router.add_post("/desktop/rollout/preflight", handle_desktop_rollout_preflight)
+    app.router.add_get("/desktop/rollout/release", handle_windows_release_offer, allow_head=False)
+    app.router.add_get("/desktop/rollout/releases/{version}/{sha256}", handle_windows_release_download, allow_head=False)
     app.router.add_post("/desktop/{tool_name}", handle_desktop_dispatch)
     app.router.add_post("/desktop/transfer/push", handle_desktop_transfer_push)
     app.router.add_post("/desktop/transfer/pull", handle_desktop_transfer_pull)

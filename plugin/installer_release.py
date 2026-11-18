@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import hashlib
 import hmac
+import json
 import os
 from pathlib import Path
 import re
@@ -16,6 +17,25 @@ from typing import Any
 _SHA256 = re.compile(r"[0-9a-f]{64}\Z")
 _MAX_EXE_BYTES = 128 * 1024 * 1024
 _CHUNK_BYTES = 1024 * 1024
+
+
+def read_owner_json(path: Path, max_bytes: int) -> dict[str, Any]:
+    """Read a bounded owner-only JSON object from a regular local file."""
+    if not path.is_absolute():
+        raise ValueError("configuration path must be absolute")
+    descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    with os.fdopen(descriptor, "rb") as stream:
+        info = os.fstat(stream.fileno())
+        if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077
+                or info.st_uid not in (os.getuid(), 0)):
+            raise ValueError("configuration must be owner-only and owned by service user or root")
+        raw = stream.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise ValueError("configuration too large")
+    value = json.loads(raw)
+    if not isinstance(value, dict):
+        raise ValueError("configuration must be an object")
+    return value
 
 
 @dataclass(frozen=True)
@@ -48,9 +68,11 @@ class InstallerRelease:
                 fields[name] = Path(fields[name])
         return cls(**fields)
 
-    def snapshot(self, directory: Path) -> Path:
+    def snapshot(self, directory: Path, *, filename: str = "Ayin-Relay-Setup-x64.exe") -> Path:
         """Copy once and verify the private copy that the HTTP service will read."""
-        snapshot = directory / "Ayin-Relay-Setup-x64.exe"
+        if Path(filename).name != filename or not filename.endswith(".exe"):
+            raise ValueError("a simple EXE snapshot file name is required")
+        snapshot = directory / filename
         digest = hashlib.sha256()
         created = False
         try:

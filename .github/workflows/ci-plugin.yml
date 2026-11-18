@@ -118,6 +118,7 @@ jobs:
             plugin/tests/test_connector_authorization.py \
             plugin/tests/test_connector_portal.py \
             plugin/tests/test_desktop_rollout.py \
+            plugin/tests/test_node_release.py \
             scripts/tests/package_desktop_connector_test.py \
             plugin/tests/test_profile_plugin_registration.py \
             plugin/tests/test_native_layout_imports.py \
