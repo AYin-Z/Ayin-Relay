@@ -2,17 +2,19 @@
 from __future__ import annotations
 
 import asyncio
-from dataclasses import asdict
+from dataclasses import asdict, replace
+from hashlib import sha256
 import io
 import json
 from pathlib import Path
 import re
 import secrets
+import subprocess
 import tempfile
 import time
 import unittest
 from urllib.parse import parse_qs, urlsplit
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 import zipfile
 
 from aiohttp import web
@@ -24,6 +26,7 @@ from plugin.connector_portal import (
     AccessJWTVerifier, CSRF, DownloadLimiter, PortalConfig,
     build_download_archive, create_app, validate_template,
 )
+from plugin.installer_release import InstallerRelease
 
 
 def template(path: Path) -> None:
@@ -38,6 +41,127 @@ def config(path: Path, **kwargs: object) -> PortalConfig:
               "base_zip_path": path}
     values.update(kwargs)
     return PortalConfig(**values)
+
+
+class SignedInstallerTests(unittest.IsolatedAsyncioTestCase):
+    def setUp(self) -> None:
+        scratch = tempfile.TemporaryDirectory()
+        self.addCleanup(scratch.cleanup)
+        self.directory = Path(scratch.name)
+        self.exe = self.directory / "release.exe"
+        self.payload = b"MZ pinned release bytes"
+        self.exe.write_bytes(self.payload)
+        self.release = InstallerRelease(self.exe, sha256(self.payload).hexdigest(),
+                                        "d" * 64, self.directory / "trusted.pem",
+                                        self.directory / "timestamps.pem")
+        self.zip = self.directory / "template.zip"
+        template(self.zip)
+
+    def test_config_parses_exact_release_and_requires_browser_enrollment(self) -> None:
+        with self.assertRaisesRegex(ValueError, "requires browser enrollment"):
+            config(self.zip, installer_exe=self.release)
+        portal = config(self.zip, browser_enrollment_enabled=True, installer_exe=self.release)
+        settings = self.directory / "portal.json"
+        settings.write_text(json.dumps(asdict(portal), default=str))
+        settings.chmod(0o600)
+        self.assertEqual(PortalConfig.from_file(settings), portal)
+
+    def test_digest_mismatch_and_signature_failure_remove_the_private_snapshot(self) -> None:
+        target = self.directory / "private"
+        target.mkdir()
+        with patch("plugin.installer_release.subprocess.run") as verify:
+            with self.assertRaisesRegex(ValueError, "SHA-256"):
+                replace(self.release, sha256="e" * 64).snapshot(target)
+            verify.assert_not_called()
+        self.assertEqual(list(target.iterdir()), [])
+
+        with patch("plugin.installer_release.subprocess.run", side_effect=subprocess.CalledProcessError(1, [])):
+            with self.assertRaisesRegex(ValueError, "Authenticode"):
+                self.release.snapshot(target)
+        self.assertEqual(list(target.iterdir()), [])
+
+    def test_source_symlink_is_rejected(self) -> None:
+        target = self.directory / "private"
+        target.mkdir()
+        link = self.directory / "untrusted-source.exe"
+        link.symlink_to(self.exe)
+        with patch("plugin.installer_release.subprocess.run") as verify, self.assertRaises(OSError):
+            replace(self.release, path=link).snapshot(target)
+        verify.assert_not_called()
+        self.assertEqual(list(target.iterdir()), [])
+
+    async def test_invalid_signature_leaves_zip_fallback_available(self) -> None:
+        app = create_app(config(self.zip, browser_enrollment_enabled=True, installer_exe=self.release))
+        with patch("plugin.installer_release.subprocess.run", side_effect=subprocess.CalledProcessError(1, [])), \
+             patch.object(AccessJWTVerifier, "verify", new_callable=AsyncMock, return_value="user"):
+            async with TestClient(TestServer(app)) as client:
+                page = await client.get("/relay/private/")
+                self.assertEqual(page.status, 200)
+                markup = await page.text()
+                self.assertIn("/relay/private/download", markup)
+                self.assertNotIn("/relay/private/windows.exe", markup)
+                response = await client.get("/relay/private/windows.exe")
+                self.assertEqual(response.status, 503)
+
+    async def test_signed_download_requires_access_serves_verified_copy_and_mints_no_invites(self) -> None:
+        settings = config(self.zip, browser_enrollment_enabled=True, installer_exe=self.release,
+                          downloads_per_window=1)
+        application = create_app(settings)
+
+        async def identity(_self: AccessJWTVerifier, token: str) -> str:
+            if token != "test-signed-in-user":
+                raise web.HTTPUnauthorized()
+            return "user"
+
+        with patch("plugin.installer_release.subprocess.run") as verification, \
+             patch.object(AccessJWTVerifier, "verify", identity):
+            async with TestClient(TestServer(application)) as client:
+                (command,), verify_options = verification.call_args
+                self.assertEqual(command[:3], ["osslsigncode", "verify", "-in"])
+                self.assertIn(f"sha256:{self.release.signer_sha256}", command)
+                self.assertIn(str(self.release.trust_bundle), command)
+                self.assertIn(str(self.release.timestamp_trust_bundle), command)
+                self.assertIn("-ignore-cdp", command)
+                self.assertTrue(verify_options["check"])
+                snapshot = Path(command[3])
+                self.assertNotEqual(snapshot, self.exe)
+                self.assertTrue(snapshot.is_file())
+                self.exe.write_bytes(b"MZ changed after verification")
+
+                route = "/relay/private/windows.exe"
+                denied = await client.get(route)
+                self.assertEqual(denied.status, 401)
+                headers = {"CF-Access-Jwt-Assertion": "test-signed-in-user"}
+                page = await client.get("/relay/private/", headers=headers)
+                self.assertIn(route, await page.text())
+
+                with patch("plugin.connector_portal.ClientSession.post", new_callable=AsyncMock) as post:
+                    response = await client.get(route, headers=headers)
+                    self.assertEqual(response.status, 200)
+                    self.assertIn("no-store", response.headers["Cache-Control"])
+                    self.assertEqual(response.headers["Content-Disposition"],
+                                     'attachment; filename="Ayin-Relay-Setup-x64.exe"')
+                    self.assertEqual(await response.read(), self.payload)
+                    post.assert_not_awaited()
+                self.assertEqual((await client.get(route, headers=headers)).status, 429)
+
+                # A fresh download and its browser approval use separate limits.
+                enrollment = "/relay/private/enroll"
+                challenge = "f" * 64
+                parameters = {"port": "49172", "state": "a" * 32, "challenge": challenge}
+                form = await client.get(enrollment, headers=headers, params=parameters)
+                token = re.search(r'name="csrf" value="([^"]+)"', await form.text())
+                assert token is not None
+                grant = {"invite": "b" * 64, "expires_in": 300, "enrollment_challenge": challenge}
+                with patch("plugin.connector_portal.ClientSession.post") as mint, \
+                     patch("plugin.connector_portal._read_limited", new_callable=AsyncMock,
+                           return_value=json.dumps(grant).encode()):
+                    mint.return_value.__aenter__.return_value.status = 200
+                    approved = await client.post(enrollment, data={**parameters, "csrf": token[1]},
+                        headers={**headers, "Origin": settings.public_origin}, allow_redirects=False)
+                    self.assertEqual(approved.status, 303)
+                    mint.assert_called_once()
+        self.assertFalse(snapshot.exists())
 
 
 class ConfigTests(unittest.TestCase):
@@ -68,7 +192,9 @@ class ConfigTests(unittest.TestCase):
             path = Path(directory) / "template.zip"
             template(path)
             app = create_app(config(path))
-            self.assertTrue(all(route.resource.canonical != "/relay/private/enroll" for route in app.router.routes()))
+            self.assertTrue(all(route.resource.canonical not in {
+                "/relay/private/enroll", "/relay/private/windows.exe",
+            } for route in app.router.routes()))
 
     def test_csrf_is_bound_to_identity_expiry_and_service_instance(self) -> None:
         csrf = CSRF()

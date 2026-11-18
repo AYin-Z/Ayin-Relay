@@ -91,6 +91,31 @@ identity. Redemption atomically replaces that device's prior credentials.
 Other installations are unaffected. A public download invitation cannot
 overwrite a paired identity.
 
+## Serve a signed EXE
+
+Use a Windows-trusted Authenticode publisher and verify the signed candidate on a clean Windows machine. Pin the SHA-256 of the finished, signed EXE and the SHA-256 of its publisher certificate in DER form. Place the EXE and trusted PEM bundles outside the web root. Keep the signing key with the signing provider.
+
+Add these fields to the existing portal configuration while retaining the ZIP path:
+
+```json
+{
+  "browser_enrollment_enabled": true,
+  "installer_exe": {
+    "path": "/srv/apps/relay-download/Ayin-Relay-Setup-x64.exe",
+    "sha256": "<64 lowercase hex characters for the signed EXE>",
+    "signer_sha256": "<64 lowercase hex characters for the publisher certificate>",
+    "trust_bundle": "/srv/apps/relay-download/publisher-roots.pem",
+    "timestamp_trust_bundle": "/srv/apps/relay-download/timestamp-roots.pem"
+  }
+}
+```
+
+The timestamp trust bundle is optional. The service uses [osslsigncode](https://github.com/mtrojnar/osslsigncode/blob/master/osslsigncode.md) 2.13 or newer from its trusted executable path. During startup it checks the signed EXE hash, validates its Authenticode signature against the configured trust and checks the publisher pin. It serves the verified private copy until the service restarts. Production Windows acceptance independently checks trust and the displayed publisher.
+
+The protected download page offers `GET /relay/private/windows.exe` once verification succeeds. If verification fails, the EXE route returns 503 and the ZIP remains available. Downloading the fixed EXE does not issue an invitation. Browser approval issues the bound invitation when the installer is ready. EXE downloads and enrollment have separate limits. The ZIP remains a fallback.
+
+Stage the portal with the intended signed EXE and confirm its downloaded SHA-256, browser approval and Windows startup before switching production. Removing the `installer_exe` setting and restarting restores ZIP-only downloads.
+
 ## Verification and recovery
 
 The focused tests cover signature/issuer/audience/expiry validation, anonymous

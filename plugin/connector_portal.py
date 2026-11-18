@@ -33,6 +33,7 @@ from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, w
 import jwt
 from multidict import MultiMapping
 
+from .installer_release import InstallerRelease
 from .relay.auth import (
     BROWSER_ENROLLMENT_TTL_SECONDS,
     DESKTOP_INVITE_TTL_SECONDS,
@@ -74,6 +75,7 @@ class PortalConfig:
     downloads_per_window: int = 3
     window_seconds: int = 600
     browser_enrollment_enabled: bool = False
+    installer_exe: InstallerRelease | None = None
 
     def __post_init__(self) -> None:
         origin, relay = urlsplit(self.public_origin), urlsplit(self.relay_url)
@@ -102,6 +104,10 @@ class PortalConfig:
             raise ValueError("prefix must be a path without a trailing slash")
         if type(self.browser_enrollment_enabled) is not bool:
             raise ValueError("browser_enrollment_enabled must be a boolean")
+        if self.installer_exe is not None and (
+            not isinstance(self.installer_exe, InstallerRelease) or not self.browser_enrollment_enabled
+        ):
+            raise ValueError("installer_exe requires browser enrollment")
         if (not 1 <= self.max_concurrent_downloads <= 8 or not 1 <= self.downloads_per_window <= 20
                 or not 10 <= self.window_seconds <= 3600):
             raise ValueError("download limits outside supported range")
@@ -121,6 +127,8 @@ class PortalConfig:
         if not isinstance(data, dict):
             raise ValueError("configuration must be an object")
         data["base_zip_path"] = Path(data["base_zip_path"])
+        if data.get("installer_exe") is not None:
+            data["installer_exe"] = InstallerRelease.from_mapping(data["installer_exe"])
         return cls(**data)
 
 
@@ -308,13 +316,22 @@ def create_app(config: PortalConfig) -> web.Application:
     session_key = web.AppKey("portal_session", ClientSession)
     verifier_key = web.AppKey("portal_verifier", AccessJWTVerifier)
     temp_key = web.AppKey("portal_temporary", Path)
+    installer_key = web.AppKey("portal_installer_exe", Path)
     csrf, limiter = CSRF(), DownloadLimiter(config)
+    exe_limiter = DownloadLimiter(config)
 
     async def resources(application: web.Application) -> AsyncIterator[None]:
         async with ClientSession(timeout=ClientTimeout(total=10), trust_env=False) as session:
             with tempfile.TemporaryDirectory(prefix="relay-connector-") as directory:
                 application[session_key], application[verifier_key] = session, AccessJWTVerifier(config, session)
                 application[temp_key] = Path(directory)
+                if config.installer_exe is not None:
+                    try:
+                        application[installer_key] = await asyncio.to_thread(
+                            config.installer_exe.snapshot, application[temp_key],
+                        )
+                    except (OSError, ValueError):
+                        logger.error("Signed Windows installer unavailable after verification")
                 yield
 
     async def identity(request: web.Request) -> str:
@@ -349,7 +366,13 @@ def create_app(config: PortalConfig) -> web.Application:
         subject = await identity(request)
         token = html.escape(csrf.issue(subject), quote=True)
         target = html.escape(f"{config.prefix}/private/download", quote=True)
+        windows = ""
+        if installer_key in request.app:
+            executable_url = html.escape(f"{config.prefix}/private/windows.exe", quote=True)
+            windows = f'''<h2>签名 EXE</h2><p>下载并打开安装程序，按提示在浏览器中确认这台电脑。</p>
+<a href="{executable_url}">下载 Windows EXE</a><h2>备用 ZIP</h2>'''
         return _page("下载桌面连接器", f'''<h1>安装桌面连接器</h1><p>安装时一次确认，授权这台电脑的文件、命令执行、屏幕与输入、USB、麦克风和摄像头能力。安装后以独立的长期授权连接，直到你撤销。</p>
+{windows}
 <ol><li>点击下方按钮下载专属安装包。</li><li>解压全部文件，双击 <strong>Install.cmd</strong>，按提示确认安装。</li><li>以后登录自动后台运行，无需再次填写配对码。</li></ol>
 <p>安装包的首次连接邀请只能使用一次，并在领取后 1 小时失效。请及时安装；超时后重新下载。请勿转发安装包。</p>
 <form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}"><button type="submit">下载 Windows 安装包</button></form>
@@ -397,6 +420,27 @@ def create_app(config: PortalConfig) -> web.Application:
                     path.unlink(missing_ok=True)
             finally:
                 limiter.active -= 1
+
+    async def download_exe(request: web.Request) -> web.StreamResponse:
+        subject = await identity(request)
+        path = request.app.get(installer_key)
+        if path is None:
+            raise web.HTTPServiceUnavailable(text="暂时无法验证 Windows 安装程序。")
+        exe_limiter.acquire(subject)
+        try:
+            with path.open("rb") as source:
+                response = web.StreamResponse(headers={**_SECURITY_HEADERS,
+                    "Content-Type": "application/octet-stream",
+                    "Content-Disposition": 'attachment; filename="Ayin-Relay-Setup-x64.exe"',
+                    "Content-Length": str(os.fstat(source.fileno()).st_size),
+                })
+                await response.prepare(request)
+                while chunk := source.read(_CHUNK_SIZE):
+                    await response.write(chunk)
+                await response.write_eof()
+                return response
+        finally:
+            exe_limiter.active -= 1
 
     def enrollment_parameters(values: MultiMapping[str | web.FileField]) -> tuple[str, str, str]:
         port, state, challenge = (values.get(name) for name in ("port", "state", "challenge"))
@@ -453,6 +497,8 @@ def create_app(config: PortalConfig) -> web.Application:
     app.router.add_get(config.prefix + "/private", private_page)
     app.router.add_get(config.prefix + "/private/download", private_page)
     app.router.add_post(config.prefix + "/private/download", download)
+    if config.installer_exe is not None:
+        app.router.add_get(config.prefix + "/private/windows.exe", download_exe, allow_head=False)
     if config.browser_enrollment_enabled:
         app.router.add_get(config.prefix + "/private/enroll", enrollment_page)
         app.router.add_post(config.prefix + "/private/enroll", approve_enrollment)
