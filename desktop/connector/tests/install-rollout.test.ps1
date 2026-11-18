@@ -82,6 +82,7 @@ try {
     Invoke-ConnectorRollout $executable $status $remote
     Assert-Case ((Read-ConnectorRolloutJson $receipt).rollout_id -eq $assignment) 'The final result must carry the assigned rollout ID'
     Assert-Case ((Read-ConnectorRolloutJson $receipt).state -eq 'applied') 'Authenticated target version should commit'
+    Assert-Case ((Read-ConnectorRolloutJson $receipt).active_sha256 -eq $digest) 'Committed receipt must pin the installed bytes'
     Assert-Case ([IO.File]::ReadAllText($previous) -eq 'old') 'Successful rollout must retain its recoverable previous version'
     Assert-Case ($stops -eq 1 -and $calls.Count -eq 2 -and -not [IO.Directory]::Exists($trial)) 'A successful trial must run once'
     Invoke-ConnectorRollout $executable $status $remote
@@ -91,6 +92,7 @@ try {
         New-Fixture $case
         Invoke-ConnectorRollout $executable $status $remote
         Assert-Case ((Read-ConnectorRolloutJson $receipt).state -eq 'rolled_back') 'Unhealthy versions must produce a rollback receipt'
+        Assert-Case ((Read-ConnectorRolloutJson $receipt).active_sha256 -eq $oldDigest) 'Rollback receipt must pin the restored bytes'
         Assert-Case ([IO.File]::ReadAllText($executable) -eq 'old') 'Failed trial must restore the exact previous binary'
         Assert-Case ($stops -eq 2 -and -not [IO.Directory]::Exists($trial)) 'Failed version must be stopped and retired'
     }

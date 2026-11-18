@@ -29,7 +29,7 @@ class ConnectorPackageTests(unittest.TestCase):
             output = root / "template.zip"
             manifest = packager.package_template(binary, output, SOURCE_SHA.upper(), "1.2.3-rc.1")
             with zipfile.ZipFile(output) as archive:
-                self.assertEqual(set(archive.namelist()), {"Install.cmd", "install.ps1", "Status.cmd", "Stop.cmd", "hermes-relay.exe", "manifest.json"})
+                self.assertEqual(set(archive.namelist()), {"Install.cmd", "install.ps1", "Status.cmd", "Stop.cmd", "Uninstall.cmd", "hermes-relay.exe", "manifest.json"})
                 self.assertEqual(archive.read("hermes-relay.exe"), payload)
                 self.assertEqual(json.loads(archive.read("manifest.json")), manifest)
                 self.assertEqual(manifest, {"sha256": hashlib.sha256(payload).hexdigest(), "source_sha": SOURCE_SHA, "version": "1.2.3-rc.1"})
@@ -55,7 +55,7 @@ class ConnectorPackageTests(unittest.TestCase):
                 self.assertTrue(check)
                 staging = Path(args[1].split("=", 1)[1])
                 self.assertEqual({entry.name for entry in staging.iterdir()},
-                                 {"launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd",
+                                 {"launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd", "Uninstall.cmd",
                                   "hermes-relay.exe", "manifest.json", "portal.json"})
                 self.assertEqual(json.loads((staging / "portal.json").read_bytes()),
                                  {"portal": portal, "relay_url": relay})

@@ -44,6 +44,8 @@ A legacy general-purpose session requires a fresh connector invitation; moving
 an existing enrolled device may also require the operator's explicit migration
 approval. Other servers' saved sessions remain in the same store.
 
+Run the installed `Uninstall.cmd` as the same Windows user to remove the connector. After confirmation, it verifies and removes the connector's startup task, stops its daemon, and removes matching connector files. It preserves pairing records, backups and files that have been replaced independently. Revoke the device in Ayin-Relay separately when decommissioning it.
+
 The installer checks the executable's SHA-256 against `manifest.json` before
 changing the installation. The private `setup.json` is consumed from a file,
 never a command-line token, and removed after successful installation. Treat
@@ -126,6 +128,7 @@ Install.cmd
 install.ps1
 Status.cmd
 Stop.cmd
+Uninstall.cmd
 hermes-relay.exe
 manifest.json
 ```

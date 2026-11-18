@@ -76,7 +76,7 @@ $trayStopped = $false
 $runRemoved = $false
 $oldDaemon = $null
 $taskBackups = @()
-$mutatedFiles = @('remote-sessions.json','desktop-host-access.json','desktop-device-id','run-connector.ps1','relay-connector-hidden.vbs','connector-control.ps1','Stop.cmd','Status.cmd')
+$mutatedFiles = @('remote-sessions.json','desktop-host-access.json','desktop-device-id','run-connector.ps1','relay-connector-hidden.vbs','connector-control.ps1','Stop.cmd','Status.cmd','Uninstall.cmd')
 $existingFiles = @{}
 $savedRollouts = @()
 $tray = Join-Path $binDir 'hermes-relay-tray.exe'
@@ -203,6 +203,7 @@ function Complete-ConnectorRollout([string]$Executable,[string]$Trial,[object]$P
     $receipt = @{
         attempt_id=$Plan.attempt_id; version=$Plan.version; sha256=$Plan.sha256
         state=$State; completed_at=[DateTimeOffset]::UtcNow.ToUnixTimeSeconds()
+        active_sha256=$(if ($State -ceq 'applied') { $Plan.sha256 } else { $Plan.previous_sha256 })
     }
     if ($Plan.rollout_id) { $receipt.rollout_id = $Plan.rollout_id }
     Write-ConnectorRolloutJson ($Executable+'.rollout-result.json') $receipt
@@ -410,24 +411,72 @@ function Get-ConnectorTaskManagementSddl([string]$sddl,[Security.Principal.Secur
     $descriptor.DiscretionaryAcl.InsertAce($index,$entry)
     return $descriptor.GetSddlForm([Security.AccessControl.AccessControlSections]::Access)
 }
-function Grant-ConnectorTaskManagement {
-    # This helper may grant management only for this exact Limited task. It is
-    # never used on the legacy tasks or on a task running with highest rights.
-    if ($taskName -notmatch '^HermesRelay-Connector-[A-Fa-f0-9]{12}$') { throw '连接器自启任务名称无效。' }
+function Get-ConnectorTaskFolder {
     $scheduler = New-Object -ComObject 'Schedule.Service'
     $scheduler.Connect()
-    $task = $scheduler.GetFolder('\').GetTask($taskName)
-    $definition = $task.Definition
-    if ($task.Path -ine ('\'+$taskName) -or $definition.Principal.RunLevel -ne 0 -or $definition.Principal.LogonType -ne 3) { throw '拒绝修改不属于当前普通用户连接器的任务权限。' }
+    $scheduler.GetFolder('\')
+}
+function Find-ConnectorTask($Folder,[string]$Name) {
+    try { $Folder.GetTask($Name) }
+    catch {
+        $cause = $_.Exception
+        while ($cause.InnerException) { $cause = $cause.InnerException }
+        if ($cause.HResult -ne -2147024894) { throw } # ERROR_FILE_NOT_FOUND
+        return $null
+    }
+}
+function Assert-ConnectorTask($Task,[string]$Name,[string]$UserSid,[string]$LauncherExecutable,[string]$LauncherPath) {
+    if ($Name -notmatch '^HermesRelay-Connector-[A-Fa-f0-9]{12}$') { throw '连接器自启任务名称无效。' }
+    $definition = $Task.Definition
+    if ($Task.Path -ine ('\'+$Name) -or $definition.Principal.RunLevel -ne 0 -or $definition.Principal.LogonType -ne 3) {
+        throw '任务不属于当前普通用户连接器。'
+    }
     $principal = [string]$definition.Principal.UserId
-    if ($principal -match '^S-1-') { $principalSid = (New-Object Security.Principal.SecurityIdentifier($principal)).Value }
+    if ($principal -match '^S-1-') { $principalSid = $principal }
     else { $principalSid = (New-Object Security.Principal.NTAccount($principal)).Translate([Security.Principal.SecurityIdentifier]).Value }
-    if ($principalSid -cne $userSid) { throw '连接器自启任务所属用户不匹配。' }
-    $expectedExecutable = $launcherExecutable
-    $expectedArguments = '//B //Nologo "'+$launcherPath+'"'
+    if ($principalSid -cne $UserSid) { throw '连接器自启任务所属用户不匹配。' }
     if ($definition.Actions.Count -ne 1) { throw '连接器自启任务操作不匹配。' }
     $action = $definition.Actions.Item(1)
-    if ($action.Type -ne 0 -or [IO.Path]::GetFullPath([string]$action.Path) -ine [IO.Path]::GetFullPath($expectedExecutable) -or $action.Arguments -cne $expectedArguments) { throw '连接器自启任务路径不匹配。' }
+    if ($action.Type -ne 0 -or [IO.Path]::GetFullPath([string]$action.Path) -ine [IO.Path]::GetFullPath($LauncherExecutable) -or
+        $action.Arguments -cne ('//B //Nologo "'+$LauncherPath+'"')) { throw '连接器自启任务路径不匹配。' }
+}
+function Suspend-ConnectorTask($Task) {
+    $Task.Enabled = $false
+    if ($Task.Enabled) { throw '无法禁用连接器自启任务。' }
+    if ($Task.GetInstances(0).Count -gt 0) { $Task.Stop(0) }
+    $deadline = [DateTime]::UtcNow.AddSeconds(5)
+    while ($Task.GetInstances(0).Count -gt 0) {
+        if ([DateTime]::UtcNow -ge $deadline) { throw '连接器自启任务未能退出。' }
+        Start-Sleep -Milliseconds 200
+    }
+}
+function Remove-ConnectorInstalledFile([string]$Path,[string[]]$Hashes) {
+    try { $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop }
+    catch [Management.Automation.ItemNotFoundException] { return }
+    if ($item.PSIsContainer -or ($item.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+        (Get-ConnectorRolloutDigest $Path) -cnotin $Hashes) {
+        Write-Warning ('保留已更改的文件：' + $Path)
+        return
+    }
+    [IO.File]::Delete($Path)
+    if ([IO.File]::Exists($Path)) { throw ('无法移除连接器文件：' + $Path) }
+}
+function Get-ConnectorUninstallHashes([string]$Executable,[string]$InstallHash) {
+    $InstallHash
+    try {
+        $receipt = Read-ConnectorRolloutJson ($Executable+'.rollout-result.json')
+        if ($receipt.state -cin @('applied','rolled_back') -and $receipt.active_sha256 -cmatch '\A[0-9a-f]{64}\z') {
+            $receipt.active_sha256
+        }
+    } catch {
+        # An absent or unreadable receipt cannot prove ownership of newer bytes.
+    }
+}
+function Grant-ConnectorTaskManagement {
+    # Only grant management of this user's exact Limited task.
+    $task = Find-ConnectorTask (Get-ConnectorTaskFolder) $taskName
+    if (-not $task) { throw '找不到连接器自启任务。' }
+    Assert-ConnectorTask $task $taskName $userSid $launcherExecutable $launcherPath
     $sid = New-Object Security.Principal.SecurityIdentifier($userSid)
     $before = $task.GetSecurityDescriptor(4)
     $updated = Get-ConnectorTaskManagementSddl $before $sid
@@ -582,30 +631,92 @@ try {
         $wrapper = 'function '+$name+' {'+(Get-Item ('Function:\'+$name)).ScriptBlock.ToString()+"}`r`n"+$wrapper
     }
     [IO.File]::WriteAllText($wrapperPath,$wrapper.Replace("`r`n","`n").Replace("`n","`r`n"),$utf8Bom)
+    foreach ($name in @('Stop.cmd','Status.cmd','Uninstall.cmd')) {
+        Copy-Item -LiteralPath (Join-Path $stage $name) -Destination $homeDir -Force
+    }
+    $launcher = Get-ConnectorLauncherContent "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" $wrapperPath
+    [IO.File]::WriteAllText($launcherPath,$launcher,[Text.Encoding]::Unicode)
+    $ownedFiles = [ordered]@{}
+    foreach ($name in @('Stop.cmd','Status.cmd','run-connector.ps1','relay-connector-hidden.vbs')) {
+        $ownedFiles[$name] = Get-ConnectorRolloutDigest (Join-Path $homeDir $name)
+    }
     $control = @'
-param([ValidateSet('Status','Stop')][string]$Action = 'Status')
+param([ValidateSet('Status','Stop','Uninstall')][string]$Action = 'Status')
 $ErrorActionPreference = 'Stop'
+__FUNCTIONS__
 $env:USERPROFILE = __PROFILE__
 $env:HOME = __PROFILE__
 $env:HERMES_RELAY_HOST_ACCESS_POLICY_PATH = __POLICY__
 $cli = __CLI__
-if ($Action -eq 'Stop') {
-    Disable-ScheduledTask -TaskName __TASK__ -TaskPath '\' | Out-Null
-    Stop-ScheduledTask -TaskName __TASK__ -TaskPath '\' -ErrorAction SilentlyContinue
-    & $cli daemon stop
-    Write-Host '自动重连已暂停。重新运行安装器可恢复。'
-} else {
+if ($Action -eq 'Status') {
     Get-ScheduledTask -TaskName __TASK__ -TaskPath '\' | Select-Object TaskName,State | Format-Table
     & $cli daemon status
+    exit $LASTEXITCODE
 }
+if ([IO.Path]::GetFullPath($PSCommandPath) -ine __CONTROL_PATH__ -or
+    [Security.Principal.WindowsIdentity]::GetCurrent().User.Value -cne __SID__) {
+    throw '请使用安装连接器的 Windows 用户。'
+}
+if ($Action -eq 'Uninstall' -and (Read-Host '移除连接器和自启任务，保留配对记录和备份。输入 yes 确认') -cne 'yes') {
+    exit 2
+}
+$lock = [IO.File]::Open(__LOCK__,[IO.FileMode]::OpenOrCreate,[IO.FileAccess]::ReadWrite,[IO.FileShare]::None)
+try {
+    $folder = Get-ConnectorTaskFolder
+    $task = Find-ConnectorTask $folder __TASK__
+    if ($task) {
+        Assert-ConnectorTask $task __TASK__ __SID__ __WSCRIPT__ __LAUNCHER__
+        Suspend-ConnectorTask $task
+    }
+    $state = Get-ConnectorDaemonState __STATUS__ $cli
+    if ($state -eq 'alive') {
+        $status = Read-ConnectorRolloutJson __STATUS__
+        if ($status.configured_url -cne __REMOTE__) {
+            throw '同一路径的后台程序正在连接其他服务器。自启任务已暂停。'
+        }
+    }
+    Stop-ConnectorRolloutDaemon __STATUS__ $cli
+    if (@(Get-ConnectorBinaryProcesses).Count) { throw '此安装路径仍有程序运行。关闭后重试。' }
+    if ($Action -eq 'Stop') {
+        Write-Host '自动重连已暂停。重新运行安装器可恢复。'
+        exit 0
+    }
+    if ($task) {
+        $task = Find-ConnectorTask $folder __TASK__
+        if ($task) {
+            Assert-ConnectorTask $task __TASK__ __SID__ __WSCRIPT__ __LAUNCHER__
+            if ($task.Enabled -or $task.GetInstances(0).Count) { throw '自启任务已变化，请重新运行卸载。' }
+            $folder.DeleteTask(__TASK__,0)
+        }
+        if (Find-ConnectorTask $folder __TASK__) { throw '未能移除连接器自启任务。' }
+    }
+    Remove-ConnectorInstalledFile $cli @(Get-ConnectorUninstallHashes $cli __INSTALL_HASH__)
+    $files = __OWNED_FILES__ | ConvertFrom-Json
+    foreach ($entry in $files.PSObject.Properties) {
+        Remove-ConnectorInstalledFile (Join-Path __HOME_DIR__ $entry.Name) @($entry.Value)
+    }
+    [IO.File]::Delete($PSCommandPath)
+    Write-Host '连接器已卸载。已保留配对记录和备份。'
+} finally { $lock.Dispose() }
 '@
-    $control = $control.Replace('__PROFILE__',(Quote-Literal $profileRoot)).Replace('__POLICY__',(Quote-Literal $env:HERMES_RELAY_HOST_ACCESS_POLICY_PATH)).Replace('__CLI__',(Quote-Literal $cli)).Replace('__TASK__',(Quote-Literal $taskName))
+    $functions = foreach ($name in @('Get-ConnectorTaskFolder','Find-ConnectorTask','Assert-ConnectorTask','Suspend-ConnectorTask',
+        'Get-ConnectorRolloutDigest','Read-ConnectorRolloutJson','Get-ConnectorProcessSnapshot','Get-ConnectorDaemonState',
+        'Stop-ConnectorRolloutDaemon','Get-ConnectorBinaryProcesses','Remove-ConnectorInstalledFile','Get-ConnectorUninstallHashes')) {
+        'function '+$name+' {'+(Get-Item ('Function:\'+$name)).ScriptBlock.ToString()+"}`r`n"
+    }
+    $controlValues = @{
+        __FUNCTIONS__=($functions -join ''); __PROFILE__=(Quote-Literal $profileRoot)
+        __POLICY__=(Quote-Literal $env:HERMES_RELAY_HOST_ACCESS_POLICY_PATH); __CLI__=(Quote-Literal $cli)
+        __TASK__=(Quote-Literal $taskName); __SID__=(Quote-Literal $userSid)
+        __CONTROL_PATH__=(Quote-Literal $controlPath)
+        __LOCK__=(Quote-Literal (Join-Path $homeDir 'connector-install.lock'))
+        __WSCRIPT__=(Quote-Literal $launcherExecutable); __LAUNCHER__=(Quote-Literal $launcherPath)
+        __STATUS__=(Quote-Literal (Join-Path $homeDir 'daemon-status.json')); __REMOTE__=(Quote-Literal $remote)
+        __INSTALL_HASH__=(Quote-Literal $manifest.sha256.ToLowerInvariant())
+        __OWNED_FILES__=(Quote-Literal (ConvertTo-Json $ownedFiles -Compress)); __HOME_DIR__=(Quote-Literal $homeDir)
+    }
+    $control = [regex]::Replace($control,'__[A-Z_]+__',{ param($token) $controlValues[$token.Value] })
     [IO.File]::WriteAllText($controlPath,$control.Replace("`r`n","`n").Replace("`n","`r`n"),$utf8Bom)
-    Copy-Item -LiteralPath (Join-Path $stage 'Stop.cmd') -Destination $homeDir -Force
-    Copy-Item -LiteralPath (Join-Path $stage 'Status.cmd') -Destination $homeDir -Force
-    $launcher = Get-ConnectorLauncherContent "$env:WINDIR\System32\WindowsPowerShell\v1.0\powershell.exe" $wrapperPath
-    # UTF-16 preserves arbitrary Windows profile names in the VBS source.
-    [IO.File]::WriteAllText($launcherPath,$launcher,[Text.Encoding]::Unicode)
     $action = New-ScheduledTaskAction -Execute $launcherExecutable -Argument ('//B //Nologo "'+$launcherPath+'"')
     $triggers = @((New-ScheduledTaskTrigger -AtLogOn -User $user),(New-ScheduledTaskTrigger -Once -At (Get-Date).AddMinutes(1) -RepetitionInterval (New-TimeSpan -Minutes 1)))
     $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel Limited
@@ -622,6 +733,7 @@ if ($Action -eq 'Stop') {
     Write-Host '安装完成。以后自动后台连接，无需配对码，也没有托盘弹窗。'
     Write-Host ('查看状态：' + (Join-Path $homeDir 'Status.cmd'))
     Write-Host ('暂停连接：' + (Join-Path $homeDir 'Stop.cmd'))
+    Write-Host ('卸载连接器：' + (Join-Path $homeDir 'Uninstall.cmd'))
     Write-Host ('旧版、配对记录和原自启任务备份：' + $backup)
 } catch {
     $failure = $_

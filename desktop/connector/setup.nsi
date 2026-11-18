@@ -25,6 +25,7 @@ Section
   File "${PAYLOAD}/install.ps1"
   File "${PAYLOAD}/Stop.cmd"
   File "${PAYLOAD}/Status.cmd"
+  File "${PAYLOAD}/Uninstall.cmd"
   File "${PAYLOAD}/hermes-relay.exe"
   File "${PAYLOAD}/manifest.json"
   File "${PAYLOAD}/portal.json"

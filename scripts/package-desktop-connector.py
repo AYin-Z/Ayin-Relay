@@ -23,7 +23,7 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 INSTALLER_DIR = ROOT / "desktop" / "connector"
-INSTALLER_FILES = ("Install.cmd", "install.ps1", "Status.cmd", "Stop.cmd")
+INSTALLER_FILES = ("Install.cmd", "install.ps1", "Status.cmd", "Stop.cmd", "Uninstall.cmd")
 _SOURCE_SHA = re.compile(r"(?:[0-9a-fA-F]{40}|[0-9a-fA-F]{64})\Z")
 _VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?\Z")
 _CHUNK_SIZE = 1024 * 1024
@@ -126,7 +126,7 @@ def package_exe(binary: Path, output: Path, source_sha: str, version: str,
         with payload.open("rb") as source:
             manifest = {"sha256": file_digest(source, "sha256").hexdigest(),
                         "source_sha": source_sha.lower(), "version": version}
-        for name in ("launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd"):
+        for name in ("launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd", "Uninstall.cmd"):
             (stage / name).write_bytes(installer_bytes(name))
         (stage / "manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
         (stage / "portal.json").write_text(json.dumps(endpoints), encoding="utf-8")
