@@ -58,6 +58,11 @@ export interface RemoteSessionRecord {
   computerUseConsented?: boolean
 }
 
+export function isPermanentConnectorSession(session: RemoteSessionRecord | null): session is RemoteSessionRecord {
+  return !!session?.token && session.ttlExpiresAt === null &&
+    session.grants?.desktop === null && Object.keys(session.grants).length === 1
+}
+
 interface StoredRecord {
   token: string
   server_version?: string | null

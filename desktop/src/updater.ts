@@ -152,8 +152,8 @@ export function compareVersions(aRaw: string, bRaw: string): number {
     const aNum = /^\d+$/.test(ai)
     const bNum = /^\d+$/.test(bi)
     if (aNum && bNum) {
-      const na = Number(ai)
-      const nb = Number(bi)
+      const na = BigInt(ai)
+      const nb = BigInt(bi)
       if (na !== nb) return na < nb ? -1 : 1
     } else if (aNum !== bNum) {
       return aNum ? -1 : 1             // numeric < alphanumeric
@@ -302,9 +302,14 @@ async function fetchText(url: string): Promise<string> {
   return await res.text()
 }
 
-function isWindowsNodeVersion(version: string): boolean {
-  return /^(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(version) &&
-    version.length <= 128
+export function isWindowsNodeVersion(version: string): boolean {
+  if (version.length > 128 ||
+      !/^(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(version)) {
+    return false
+  }
+  const parsed = parseVersion(version)
+  return parsed !== null && Math.max(parsed.major, parsed.minor, parsed.patch) <= 65535 &&
+    !parsed.prerelease.some(part => /^0[0-9]+$/.test(part))
 }
 
 async function sha256File(path: string): Promise<string> {
@@ -340,6 +345,47 @@ function stagingPathFor(targetPath: string): { finalStaged: string; cooperative:
     return { finalStaged: `${base}.new${ext}`, cooperative: true }
   }
   return { finalStaged: targetPath, cooperative: false }
+}
+
+async function writePendingWindowsRelease(
+  staged: string, download: string, version: string, sha256: string
+): Promise<void> {
+  const releaseRecord = join(dirname(download), 'release.json')
+  await writeFile(releaseRecord, JSON.stringify({ version, sha256 }), { mode: 0o600 })
+  await rename(download, staged)
+  await rename(releaseRecord, `${staged}.json`)
+}
+
+export async function stageWindowsNodeRelease(
+  target: string,
+  version: string,
+  digest: string,
+  download: (path: string) => Promise<void>,
+  verify = verifyWindowsUpdate
+): Promise<DownloadResult> {
+  if (!target.toLowerCase().endsWith('.exe') || !isWindowsNodeVersion(version) ||
+      compareVersions(version, VERSION) <= 0 || !/^[0-9a-f]{64}$/.test(digest)) {
+    throw new Error('A newer Windows node release is required')
+  }
+  const directory = await mkdtemp(join(dirname(target), '.hermes-relay-download-'))
+  try {
+    const candidate = join(directory, 'candidate.exe')
+    await download(candidate)
+    if (await sha256File(candidate) !== digest) {
+      throw new Error('Windows node download differs from the approved SHA-256')
+    }
+    await verify(target, candidate, version)
+    const lock = await acquireProcessLock(`${target}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
+    try {
+      const staged = `${target.slice(0, -4)}.new.exe`
+      await writePendingWindowsRelease(staged, candidate, version, digest)
+      return { installedPath: staged, needsRestart: true, sha256: digest }
+    } finally {
+      await lock.release()
+    }
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 export async function downloadAndInstall(
@@ -394,10 +440,7 @@ export async function downloadAndInstall(
       : undefined
     try {
       if (cooperative && nodeVersion !== undefined) {
-        const releaseRecord = join(downloadDir, 'release.json')
-        await writeFile(releaseRecord, JSON.stringify({ version: nodeVersion, sha256: actual }), { mode: 0o600 })
-        await rename(downloadTmp, finalStaged)
-        await rename(releaseRecord, `${finalStaged}.json`)
+        await writePendingWindowsRelease(finalStaged, downloadTmp, nodeVersion, actual)
       } else {
         await rename(downloadTmp, finalStaged)
       }

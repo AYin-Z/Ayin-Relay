@@ -20,7 +20,7 @@ Ayin task layer --> AyinServer Relay <-- authenticated WSS -- Windows node
 
 The private portal serves a ZIP with a Windows executable, installation scripts and a manifest. The install flow gives the user one capability review. It uses a per-user Windows Scheduled Task that starts at sign-in and recovers the process. The task runs with limited rights. A legacy task migration can require a Windows elevation prompt. The sign-in screen and UAC secure desktop remain Windows-controlled.
 
-The [installer guide](../desktop/connector/README.md) details pause, restart, local recovery and migration. The desktop CLI has a local update command. AyinServer can preview selected installations and offer a verified update package for them. The node still applies updates through the local update command.
+The [installer guide](../desktop/connector/README.md) details pause, restart, local recovery and migration. The desktop CLI has a local update command. AyinServer can preview selected installations and offer a verified update package for them. The local update command can verify and stage the offered package. The executable swap runs during Windows startup of the node CLI.
 
 ### Rollout preflight
 
@@ -47,7 +47,7 @@ Set `RELAY_WINDOWS_RELEASE_OFFER` to an absolute path to a JSON file readable on
 
 Use the signed Windows x64 **node executable** as the artifact. For a timestamped release, `artifact.timestamp_trust_bundle` can specify the timestamp authority's CA bundle. On startup Relay snapshots the file and runs offline Authenticode verification with `osslsigncode`. If verification fails, Relay starts without offering the update. Change or withdraw the offer by updating the configuration and restarting the service.
 
-Only a device with a current desktop-only token and a UUID in the offer can download that exact version and SHA-256. Route the offer and download through HTTPS, with a same-host loopback connection from the TLS proxy to Relay. The Windows updater must independently verify the package before applying it. The download interface does not initiate installation.
+Only a device with a current desktop-only token and a UUID in the offer can download that exact version and SHA-256. Route the offer and download through HTTPS, with a same-host loopback connection from the TLS proxy to Relay. On Windows x64, use `hermes-relay update --from-relay --check` to check the offer and `hermes-relay update --from-relay` to stage it after local confirmation. The updater uses the stored connector session on its certificate-validated Relay origin and rejects redirects. Windows independently verifies the installed and downloaded publisher, the approved version and the file digest before the package can replace the active executable.
 
 ## Target Windows release path
 

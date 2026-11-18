@@ -151,3 +151,9 @@ invitation is an example, not a usable credential:
   "expires_at": 2000000000
 }
 ```
+
+## Update from AyinServer
+
+On a signed Windows x64 installation, run `hermes-relay update --from-relay --check` to see whether AyinServer selected this device for a newer version. Run `hermes-relay update --from-relay` to approve staging that release. Staging verifies the file and its publisher locally. The swap is handled during a later launch.
+
+If the installed executable has no valid publisher signature, migrate with the signed connector installer first.

@@ -9,7 +9,7 @@ import { desktopRelayIdentity } from '../deviceIdentity.js'
 import { receiveBrowserEnrollment } from '../lib/browserEnrollment.js'
 import { canonicalRelayUrl, getHostAccessMode, setHostAccessMode } from '../lib/hostAccessPolicy.js'
 import { isPidAlive, readDaemonStatus } from '../lib/daemonStatus.js'
-import { getSession, saveSession, type RemoteSessionRecord } from '../remoteSessions.js'
+import { getSession, isPermanentConnectorSession, saveSession } from '../remoteSessions.js'
 import { RelayTransport } from '../transport/RelayTransport.js'
 
 interface ConnectorInvitation {
@@ -41,11 +41,6 @@ export function validateConnectorSetup(value: unknown): ConnectorSetup {
     return { version: 2, ...invitation, enrollment_verifier: setup.enrollment_verifier }
   }
   throw new Error('Invalid connector enrollment proof')
-}
-
-export function isPermanentConnectorSession(session: RemoteSessionRecord | null): session is RemoteSessionRecord {
-  return !!session?.token && session.ttlExpiresAt === null &&
-    session.grants?.desktop === null && Object.keys(session.grants).length === 1
 }
 
 async function prepareBrowserSetup(args: ParsedArgs): Promise<number> {
