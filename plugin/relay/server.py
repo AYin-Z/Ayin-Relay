@@ -70,6 +70,7 @@ from .channels.proactive import ProactiveChannel, ProactiveError
 from .channels.terminal import TerminalHandler
 from .channels.tui import TuiHandler
 from .config import RelayConfig
+from .desktop_rollout import node_observation, parse_preflight
 from .secure_proxy import (
     SECURE_LINK_CAPABILITIES,
     SECURE_LINK_DESCRIPTION,
@@ -1085,13 +1086,7 @@ def _require_loopback(request: web.Request) -> None:
         raise web.HTTPForbidden(reason="loopback only")
 
 
-async def handle_connector_invite(request: web.Request) -> web.Response:
-    """Mint a download invite, optionally bound to an operator-selected UUID.
-
-    Ordinary portal requests have no body. A local operator may explicitly
-    provide ``{"device_id": "<existing-installation-uuid>"}`` to replace that
-    installation's credentials only after its matching invite is redeemed.
-    """
+def _require_local_operator(request: web.Request, port: int) -> None:
     _require_loopback(request)
     if any(
         name.lower() in {"origin", "referer", "forwarded", "x-real-ip"}
@@ -1099,12 +1094,20 @@ async def handle_connector_invite(request: web.Request) -> web.Response:
         for name in request.headers
     ):
         raise web.HTTPForbidden(text="Local operator only")
-    server: RelayServer = request.app["server"]
-    port = server.config.port
     if len(request.headers.getall("Host", [])) != 1 or request.host not in {
         f"127.0.0.1:{port}", f"localhost:{port}", f"[::1]:{port}",
     }:
         raise web.HTTPForbidden(text="Local operator host required")
+
+async def handle_connector_invite(request: web.Request) -> web.Response:
+    """Mint a download invite, optionally bound to an operator-selected UUID.
+
+    Ordinary portal requests have no body. A local operator may explicitly
+    provide ``{"device_id": "<existing-installation-uuid>"}`` to replace that
+    installation's credentials only after its matching invite is redeemed.
+    """
+    server: RelayServer = request.app["server"]
+    _require_local_operator(request, server.config.port)
     body: dict[str, Any] = {}
     if request.can_read_body:
         try:
@@ -1483,6 +1486,40 @@ async def handle_desktop_health(request: web.Request) -> web.Response:
         "recent_commands": server.desktop.get_recent(limit=20),
     }
     return web.json_response(out)
+
+
+async def handle_desktop_rollout_preflight(request: web.Request) -> web.Response:
+    """Report selected installations' current observations without dispatching."""
+    server: RelayServer = request.app["server"]
+    _require_local_operator(request, server.config.port)
+    if request.content_type != "application/json" or not 0 < (request.content_length or 0) <= 8192:
+        raise web.HTTPBadRequest(text="a bounded JSON request is required")
+    try:
+        version, target, device_ids = parse_preflight(await request.json())
+    except (ValueError, UnicodeError) as error:
+        raise web.HTTPBadRequest(text="invalid rollout version or installation IDs") from error
+
+    selected = set(device_ids)
+    sessions = [session for session in server.sessions.list_sessions() if session.device_id in selected]
+    registered = {session.device_id for session in sessions}
+    connector_tokens = {session.token: session.device_id for session in sessions if session.desktop_only}
+    connector_ids = set(connector_tokens.values())
+    observations = {device_id: [] for device_id in device_ids}
+    for socket, token in server._clients.items():
+        device_id = connector_tokens.get(token)
+        if device_id is None or socket.closed:
+            continue
+        view = server.desktop.session_for(socket)
+        observations[device_id].append(view if view and view.authenticated_device_id == device_id else None)
+
+    now = time.time()
+    nodes = [
+        node_observation(device_id, device_id in registered, device_id in connector_ids,
+                         observations[device_id], target, now)
+        for device_id in device_ids
+    ]
+    return web.json_response({"version": version, "observed_at": now, "nodes": nodes},
+                             headers={"Cache-Control": "no-store"})
 
 
 async def handle_desktop_dispatch(request: web.Request) -> web.Response:
@@ -5100,6 +5137,7 @@ def create_app(config: RelayConfig) -> web.Application:
     # plus the recent-commands ring. Like `_ping`, it must come before the
     # wildcard route or aiohttp swallows it.
     app.router.add_get("/desktop/health", handle_desktop_health)
+    app.router.add_post("/desktop/rollout/preflight", handle_desktop_rollout_preflight)
     app.router.add_post("/desktop/{tool_name}", handle_desktop_dispatch)
     app.router.add_post("/desktop/transfer/push", handle_desktop_transfer_push)
     app.router.add_post("/desktop/transfer/pull", handle_desktop_transfer_pull)

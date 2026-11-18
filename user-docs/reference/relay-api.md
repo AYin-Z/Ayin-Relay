@@ -98,6 +98,7 @@ enables the temporary insecure-LAN escape hatch.
 | Route family | Auth | Purpose |
 |---|---|---|
 | `/desktop/_ping`, `/desktop/health`, `/desktop/{tool_name}` | Loopback | Dispatch to a connected Windows node and inspect its readiness |
+| `/desktop/rollout/preflight` | Direct loopback operator | Report the current state of explicitly selected Windows installation IDs before a planned rollout |
 | `/desktop/transfer/push`, `/desktop/transfer/pull` | Loopback | Stream a file between the Relay host and the selected Windows node under its file-access policy |
 | `/notifications/recent` | Loopback or paired | Bounded recent notification companion state |
 | `/phone/message`, `/phone/replies` | Platform/paired path | Agent-to-phone messages and phone replies |

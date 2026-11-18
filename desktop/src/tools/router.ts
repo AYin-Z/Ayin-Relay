@@ -434,6 +434,9 @@ export class DesktopToolRouter {
         device_id: desktopDeviceId(),
         device_name: os.hostname()
       }
+      if (process.platform === 'win32' && process.arch === 'x64') {
+        payload.node_update_protocol = 1
+      }
       if (this.advertisedTools.some(name => name.startsWith('desktop_computer_'))) {
         const runtime = getComputerUseRuntimeSummary(this.controlAuthority)
         const grant = getComputerGrantSummary(this.controlAuthority)

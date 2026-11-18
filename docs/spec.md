@@ -20,7 +20,13 @@ Ayin task layer --> AyinServer Relay <-- authenticated WSS -- Windows node
 
 The private portal serves a ZIP with a Windows executable, installation scripts and a manifest. The install flow gives the user one capability review. It uses a per-user Windows Scheduled Task that starts at sign-in and recovers the process. The task runs with limited rights. A legacy task migration can require a Windows elevation prompt. The sign-in screen and UAC secure desktop remain Windows-controlled.
 
-The [installer guide](../desktop/connector/README.md) details pause, restart, local recovery and migration. The desktop CLI has a local update command. There is no fleet rollout protocol in this path.
+The [installer guide](../desktop/connector/README.md) details pause, restart, local recovery and migration. The desktop CLI has a local update command. AyinServer can preview selected installations through the read-only rollout preflight. Updates are still applied locally.
+
+### Rollout preflight
+
+`POST /desktop/rollout/preflight` accepts a target Windows release version and an explicit list of up to 64 installation UUIDs from the direct loopback operator. Ayin system membership comes from the operator's selection. The endpoint matches each UUID to an active desktop-only authorization and an authenticated desktop socket. It treats reports older than 90 seconds as stale and keeps offline, duplicate, incompatible and older-protocol installations distinct.
+
+`update_candidate` means the node reports Windows x64, an older version and the current local update protocol. `reported_at_target` is a status observation. Release signature checks and a post-update health check provide separate evidence before a rollout can be accepted.
 
 ## Target Windows release path
 
