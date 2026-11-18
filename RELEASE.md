@@ -19,9 +19,9 @@ The coordinated approval workflow can dispatch both surface approvals. Review st
 
 ## Windows signatures and updates
 
-Sign the Windows node payload before building the single-file connector. Sign the outer installer with the same Authenticode certificate. Record both hashes after signing. The signed EXE download setup is covered in [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
+Use the native Windows build for the release node payload. It embeds the Ayin-Relay Windows Node product name and the exact release version. The release job checks those fields before uploading the tested file. Cross-builds remain useful for packaging fixtures. Sign the Windows node payload before building the single-file connector. Sign the outer installer with the same Authenticode certificate. Record both hashes after signing. The signed EXE download setup is covered in [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
 
-Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. Cooperative swaps check the candidate again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
+Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. A Windows x64 node update also matches the signed executable's product and exact version to the selected release. Cooperative swaps verify the saved hash and release version again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
 
 ## Hotfix and back-merge
 

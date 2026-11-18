@@ -21,7 +21,7 @@
 
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { mkdtemp, rename, rm, stat, unlink } from 'node:fs/promises'
+import { mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
@@ -96,7 +96,9 @@ function parseVersion(raw: string): ParsedVersion | null {
   else if (v.startsWith('desktop-v')) v = v.slice('desktop-v'.length)
   else if (v.startsWith('v')) v = v.slice(1)
 
-  const [core, pre] = v.split('-', 2)
+  const separator = v.indexOf('-')
+  const core = separator === -1 ? v : v.slice(0, separator)
+  const pre = separator === -1 ? '' : v.slice(separator + 1)
   if (!core) return null
   const parts = core.split('.')
   if (parts.length !== 3) return null
@@ -300,6 +302,11 @@ async function fetchText(url: string): Promise<string> {
   return await res.text()
 }
 
+function isWindowsNodeVersion(version: string): boolean {
+  return /^(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(version) &&
+    version.length <= 128
+}
+
 async function sha256File(path: string): Promise<string> {
   const hash = createHash('sha256')
   const { createReadStream } = await import('node:fs')
@@ -363,8 +370,14 @@ export async function downloadAndInstall(
       throw new Error(`checksum mismatch: expected ${expected}, got ${actual}`)
     }
 
+    const nodeVersion = process.platform === 'win32' && info.asset_name === assetNameForPlatform('win32', 'x64')
+      ? info.latest_version
+      : undefined
+    if (nodeVersion !== undefined && (!isWindowsNodeVersion(nodeVersion) || compareVersions(nodeVersion, VERSION) <= 0)) {
+      throw new Error('A newer Windows node release is required')
+    }
     const verifyCandidate = opts.verifyCandidate ?? (process.platform === 'win32'
-      ? (candidate: string) => verifyWindowsUpdate(process.execPath, candidate)
+      ? (candidate: string) => verifyWindowsUpdate(process.execPath, candidate, nodeVersion)
       : undefined)
     await verifyCandidate?.(downloadTmp)
 
@@ -380,7 +393,14 @@ export async function downloadAndInstall(
       ? await acquireProcessLock(`${targetPath}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
       : undefined
     try {
-      await rename(downloadTmp, finalStaged)
+      if (cooperative && nodeVersion !== undefined) {
+        const releaseRecord = join(downloadDir, 'release.json')
+        await writeFile(releaseRecord, JSON.stringify({ version: nodeVersion, sha256: actual }), { mode: 0o600 })
+        await rename(downloadTmp, finalStaged)
+        await rename(releaseRecord, `${finalStaged}.json`)
+      } else {
+        await rename(downloadTmp, finalStaged)
+      }
     } finally {
       await lock?.release()
     }
@@ -410,7 +430,26 @@ export async function finalizePendingUpdate(): Promise<void> {
     // binary, nothing to swap.
     return
   }
-  await finalizePendingUpdateAt(target, candidate => verifyWindowsUpdate(target, candidate))
+  await finalizePendingUpdateAt(target, candidate => verifyPendingWindowsNode(target, candidate, VERSION))
+}
+
+/** Reconfirm the exact approved release after restart without executing its binary. */
+export async function verifyPendingWindowsNode(
+  current: string, candidate: string, installedVersion: string, verify = verifyWindowsUpdate
+): Promise<void> {
+  const recordPath = `${candidate}.json`
+  if ((await stat(recordPath)).size > 1024) throw new Error('Invalid pending Windows release record')
+  const approved: unknown = JSON.parse(await readFile(recordPath, 'utf8'))
+  if (!approved || typeof approved !== 'object' ||
+      !('version' in approved) || typeof approved.version !== 'string' || !isWindowsNodeVersion(approved.version) ||
+      compareVersions(approved.version, installedVersion) <= 0 ||
+      !('sha256' in approved) || typeof approved.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(approved.sha256)) {
+    throw new Error('Pending Windows update must match an approved newer release')
+  }
+  if (await sha256File(candidate) !== approved.sha256) {
+    throw new Error('Pending Windows update bytes differ from the approved release')
+  }
+  await verify(current, candidate, approved.version)
 }
 
 /** Check and claim a Windows update before moving the active program. */
@@ -437,6 +476,7 @@ export async function finalizePendingUpdateAt(
       await move(target, oldPath)
       try {
         await move(newPath, target)
+        await unlink(`${newPath}.json`).catch(() => undefined)
       } catch {
         await move(oldPath, target)
       }

@@ -9,11 +9,17 @@ import { installerRunsSilently, updateCommand } from '../src/commands/update.js'
 import {
   assetNameForPlatform,
   checkForUpdate,
+  compareVersions,
   downloadAndInstall,
-  finalizePendingUpdateAt
+  finalizePendingUpdateAt,
+  verifyPendingWindowsNode
 } from '../src/updater.js'
 import { VERSION } from '../src/version.js'
-import { requireSameWindowsPublisher } from '../src/lib/windowsUpdateTrust.js'
+import {
+  requireSameWindowsPublisher,
+  requireWindowsNodeVersion,
+  requireWindowsX64Executable
+} from '../src/lib/windowsUpdateTrust.js'
 
 async function captureStdout(run: () => Promise<number>): Promise<{ code: number; output: string }> {
   const originalWrite = process.stdout.write
@@ -163,6 +169,70 @@ test('Windows update publisher requires two matching SHA-256 fingerprints', () =
   assert.doesNotThrow(() => requireSameWindowsPublisher(`${pin}\r\n${pin}\r\n`))
   for (const output of ['', pin, `${pin}\n${'b'.repeat(64)}`, 'invalid\ninvalid']) {
     assert.throws(() => requireSameWindowsPublisher(output), /publisher/)
+  }
+})
+
+test('Windows node verification matches the exact approved version and product', () => {
+  assert.equal(compareVersions('1.2.3-rc-hotfix.2', '1.2.3-rc-hotfix.1'), 1)
+  assert.equal(compareVersions('1.2.3-rc-hotfix.1', '1.2.3-rc-hotfix.2'), -1)
+  const fingerprint = 'c'.repeat(64)
+  const probe = (product: string, version: string) =>
+    `${fingerprint}\n${fingerprint}\n${JSON.stringify({ product, description: `${product} ${version}` })}`
+  const product = 'Ayin-Relay Windows Node'
+  assert.doesNotThrow(() => requireWindowsNodeVersion(probe(product, '1.2.3-rc.2'), '1.2.3-rc.2'))
+  for (const mismatch of [probe(product, '1.2.3'), probe(product, '1.2.3-rc.1'), probe('Other product', '1.2.3-rc.2')]) {
+    assert.throws(() => requireWindowsNodeVersion(mismatch, '1.2.3-rc.2'), /product and version/)
+  }
+})
+
+test('Windows node verification rejects other architectures and truncated executables', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ayin-relay-update-pe-'))
+  const candidate = join(scratch, 'candidate.exe')
+  const bytes = Buffer.alloc(74)
+  bytes.writeUInt16LE(0x5a4d, 0)
+  bytes.writeUInt32LE(68, 60)
+  bytes.writeUInt32LE(0x4550, 68)
+  try {
+    bytes.writeUInt16LE(0x8664, 72)
+    await writeFile(candidate, bytes)
+    await requireWindowsX64Executable(candidate)
+    for (const machine of [0x014c, 0xaa64]) {
+      bytes.writeUInt16LE(machine, 72)
+      await writeFile(candidate, bytes)
+      await assert.rejects(requireWindowsX64Executable(candidate), /x64/)
+    }
+    await writeFile(candidate, bytes.subarray(0, 64))
+    await assert.rejects(requireWindowsX64Executable(candidate))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+})
+
+test('pending Windows node verifies the selected release again after restart', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ayin-relay-update-receipt-'))
+  const current = join(scratch, 'hermes-relay.exe')
+  const candidate = join(scratch, 'hermes-relay.new.exe')
+  const record = `${candidate}.json`
+  const contents = 'approved fixture'
+  const sha256 = createHash('sha256').update(contents).digest('hex')
+  const verification: unknown[][] = []
+  const verify = async (...args: unknown[]) => { verification.push(args) }
+  try {
+    await writeFile(candidate, contents)
+    await assert.rejects(verifyPendingWindowsNode(current, candidate, '1.0.0', verify))
+    for (const version of ['0.9.0', '1.0.0', 'next', 'v1.2.0']) {
+      await writeFile(record, JSON.stringify({ version, sha256 }))
+      await assert.rejects(verifyPendingWindowsNode(current, candidate, '1.0.0', verify), /approved newer release/)
+    }
+    await writeFile(record, JSON.stringify({ version: '1.1.0', sha256 }))
+    await writeFile(candidate, 'different fixture')
+    await assert.rejects(verifyPendingWindowsNode(current, candidate, '1.0.0', verify), /bytes differ/)
+    assert.deepEqual(verification, [])
+    await writeFile(candidate, contents)
+    await verifyPendingWindowsNode(current, candidate, '1.0.0', verify)
+    assert.deepEqual(verification, [[current, candidate, '1.1.0']])
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
   }
 })
 
