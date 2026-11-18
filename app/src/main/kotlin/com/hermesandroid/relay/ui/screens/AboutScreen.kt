@@ -456,7 +456,7 @@ fun AboutScreen(
                     // Privacy policy link
                     OutlinedButton(
                         onClick = {
-                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/AYin-Z/Ayin-Relay/blob/main/docs/privacy.md"))
+                            val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://github.com/AYin-Z/Ayin-Relay/blob/main/user-docs/privacy.md"))
                             context.startActivity(intent)
                         },
                         modifier = Modifier.fillMaxWidth()

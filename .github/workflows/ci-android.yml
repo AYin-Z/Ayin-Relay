@@ -38,6 +38,9 @@ on:
       - "scripts/tests/check_android_capabilities_test.py"
       - "scripts/check-android-native-compat.py"
       - "scripts/check-android-release-notes.py"
+      - "scripts/check-privacy-policy.py"
+      - "user-docs/privacy.md"
+      - "website/public/privacy.html"
       - "scripts/tests/check_android_native_compat_test.py"
       - "scripts/tests/check_android_release_notes_test.py"
       - ".github/workflows/ci-android.yml"
@@ -86,9 +89,10 @@ jobs:
       - name: Reject unsafe Android collection APIs
         run: python3 scripts/check-android-collection-apis.py
 
-      - name: Validate Android release notes
+      - name: Validate Android release metadata
         run: |
           python3 scripts/check-android-release-notes.py
+          python3 scripts/check-privacy-policy.py
           python3 -m unittest scripts.tests.android_prepush_test
           python3 -m unittest scripts.tests.check_android_release_notes_test
 

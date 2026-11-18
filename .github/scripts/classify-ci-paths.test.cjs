@@ -17,7 +17,8 @@ const none = {
 assert.deepEqual(classifyCiPaths(['README.md']), none);
 assert.deepEqual(classifyCiPaths(['scripts/tests/check_upstream_route_contract_test.py']), { ...none, contract: true });
 assert.deepEqual(classifyCiPaths(['desktop/src/cli.ts']), { ...none, desktop: true });
-assert.deepEqual(classifyCiPaths(['experiments/quest/src/main/kotlin/Quest.kt']), none);
+assert.deepEqual(classifyCiPaths(['user-docs/privacy.md']), { ...none, android: true, docs: true });
+assert.deepEqual(classifyCiPaths(['scripts/check-privacy-policy.py']), { ...none, android: true });
 assert.deepEqual(classifyCiPaths(['scripts/check-android-release-notes.py']), { ...none, android: true });
 assert.deepEqual(classifyCiPaths(['scripts/check-android-native-compat.py']), { ...none, android: true });
 assert.deepEqual(classifyCiPaths(['scripts/android_release_artifacts.py']), { ...none, android: true });

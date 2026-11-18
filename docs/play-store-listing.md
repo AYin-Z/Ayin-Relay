@@ -136,12 +136,9 @@ Submission-time declarations the Play Console requires — keep in sync with the
 
 ### Privacy policy
 
-Use `https://hermes-relay.dev/privacy.html` as the Play Console privacy-policy
-URL. The Android preflight and release workflows require both that canonical
-page and the historical GitHub Pages compatibility URL to return the complete
-policy before they can publish. The standard Android Publisher listing API does
-not expose this Play policy-declaration field, so the legacy URL remains a
-permanent compatibility page for existing Console metadata.
+Use the [public Ayin-Relay privacy policy](https://github.com/AYin-Z/Ayin-Relay/blob/main/user-docs/privacy.md) for the
+Ayin-Relay Play Console listing. The Android app and release checks use the same
+URL. Set the policy URL in the Play Console before the first Ayin-Relay release.
 
 ### App access
 

@@ -1,18 +1,18 @@
 ---
 layout: doc
 title: Privacy Policy
-description: Privacy policy for the Hermes-Relay Android app
+description: Privacy policy for the Ayin-Relay Android app
 ---
 
 # Privacy Policy
 
-**Hermes-Relay** · Effective date: September 12, 2026
+**Ayin-Relay** · Effective date: September 12, 2026
 
-Hermes-Relay is a native Android app that connects to your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) host. This policy describes how the app handles your data.
+Ayin-Relay is a native Android app that connects to your own [Hermes Agent](https://github.com/NousResearch/hermes-agent) host. This policy describes how the app handles your data.
 
 ## Summary
 
-Hermes-Relay has no hosted cloud service and sends no analytics. The app connects
+Ayin-Relay has no hosted cloud service and sends no analytics. The app connects
 only to servers that you configure; those servers may send chat, voice, attachments,
 and optional Assistant screen context to the AI providers you configure.
 
@@ -68,7 +68,7 @@ Google Play build:
 | Notification Access | Optional notification companion metadata forwarding to your paired relay | No |
 | Android Digital Assistant role | Optional assistant session; compatible unlocked assistant-button invocations may include one-turn screen context | No |
 
-Notification Access is granted and revoked from Android system settings. When enabled, Hermes-Relay forwards posted-notification package, title, text, subtext, timestamp, and notification key to your paired relay. It does not forward notifications to a Hermes-Relay cloud service. If you separately enable Notification triggers, matching happens locally on the phone; the MVP action writes a local activity-log entry and posts a local “Ask Hermes?” prompt. It does not send a new AI request or reply in another app automatically.
+Notification Access is granted and revoked from Android system settings. When enabled, Ayin-Relay forwards posted-notification package, title, text, subtext, timestamp, and notification key to your paired relay. It does not forward notifications to a Ayin-Relay cloud service. If you separately enable Notification triggers, matching happens locally on the phone; the MVP action writes a local activity-log entry and posts a local “Ask Hermes?” prompt. It does not send a new AI request or reply in another app automatically.
 
 If you select Hermes as Android's default Digital Assistant and separately
 enable background “Hey Hermes,” local sherpa-onnx keyword spotting uses the
@@ -78,11 +78,11 @@ notification-based experimental listener cannot be active together.
 
 Both builds declare foreground-service permissions for user-started voice and connection tasks. Both offer an optional voice-only overlay. Sideload Device Control adds accessibility, wake lock, MediaProjection screenshots, contacts, location, SMS and calls; these Device Control permissions are absent from Play.
 
-Voice Overlay is optional in both builds. Start it explicitly from Voice Focus while Hermes-Relay is visible and unlocked. It requires microphone access, display-over-other-apps access and an enabled microphone notification with Stop voice. Audio goes to the configured Hermes server; the overlay does not read or control other apps. Stop voice, closing the overlay, screen lock, task removal or loss of required access ends the overlay voice session. Returning to the app keeps foreground protection until the app is resumed. Granting permissions never starts a session.
+Voice Overlay is optional in both builds. Start it explicitly from Voice Focus while Ayin-Relay is visible and unlocked. It requires microphone access, display-over-other-apps access and an enabled microphone notification with Stop voice. Audio goes to the configured Hermes server; the overlay does not read or control other apps. Stop voice, closing the overlay, screen lock, task removal or loss of required access ends the overlay voice session. Returning to the app keeps foreground protection until the app is resumed. Granting permissions never starts a session.
 
 ## Third-Party Services
 
-Hermes-Relay includes no advertising, tracking, or analytics services. The app is built with Android platform components and open-source libraries.
+Ayin-Relay includes no advertising, tracking, or analytics services. The app is built with Android platform components and open-source libraries.
 
 ::: info Note
 Your Hermes server may connect to AI providers such as OpenAI or Anthropic server-side. That network activity is outside the scope of this app and governed by your server's configuration.
@@ -102,7 +102,7 @@ Uninstalling the app removes all stored data from your device.
 
 ## Children's Privacy
 
-Hermes-Relay is not directed at children under 13. We do not knowingly collect information from children.
+Ayin-Relay is not directed at children under 13. We do not knowingly collect information from children.
 
 ## Changes to This Policy
 
@@ -110,8 +110,8 @@ Updates will be posted on this page with a revised effective date. Significant c
 
 ## Contact
 
-Questions about this policy: [GitHub Issues](https://github.com/Codename-11/hermes-relay/issues)
+Questions about this policy: [GitHub Issues](https://github.com/AYin-Z/Ayin-Relay/issues)
 
 ## Open Source
 
-Hermes-Relay is [MIT licensed](https://github.com/Codename-11/hermes-relay). All source code is publicly auditable.
+Ayin-Relay is [MIT licensed](https://github.com/AYin-Z/Ayin-Relay). All source code is publicly auditable.
