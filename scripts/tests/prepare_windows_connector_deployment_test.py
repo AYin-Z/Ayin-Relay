@@ -6,6 +6,7 @@ from hashlib import sha256
 import importlib.util
 import json
 from pathlib import Path
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -70,6 +71,7 @@ class DeploymentHandoffTests(unittest.TestCase):
             self.assertIn(f"sha256:{PUBLISHER}", command)
             self.assertIn("-TSA-CAfile", command)
             self.signatures_checked.append(Path(command[3]).name)
+            return subprocess.CompletedProcess(command, 0, stdout=b"Timestamp Server Signature verification: ok\n")
         elif command[0] == "7z":
             self.assertEqual(len(self.signatures_checked), 2)
             destination = Path(command[3][2:])

@@ -45,7 +45,7 @@ Set `RELAY_WINDOWS_RELEASE_OFFER` to an absolute path to a JSON file readable on
 }
 ```
 
-Use the signed Windows x64 **node executable** as the artifact. For a timestamped release, `artifact.timestamp_trust_bundle` can specify the timestamp authority's CA bundle. On startup Relay snapshots the file and runs offline Authenticode verification with `osslsigncode`. If verification fails, Relay starts without offering the update. Change or withdraw the offer by updating the configuration and restarting the service.
+Use the signed Windows x64 **node executable** as the artifact. A trusted timestamp is required. Set `artifact.timestamp_trust_bundle` to choose the approved time-stamp authority roots. On startup Relay snapshots the file and runs offline Authenticode verification with `osslsigncode`. If verification fails, Relay starts without offering the update. Change or withdraw the offer by updating the configuration and restarting the service.
 
 Only a device with a current desktop-only token and a UUID in the offer can download that exact version and SHA-256. Route the offer and download through HTTPS, with a same-host loopback connection from the TLS proxy to Relay. On Windows x64, use `hermes-relay update --from-relay --check` to check the offer and `hermes-relay update --from-relay` to stage it after local confirmation. The updater uses the stored connector session on its certificate-validated Relay origin and rejects redirects. Windows independently verifies the installed and downloaded publisher, the approved version and the file digest before the package can replace the active executable.
 

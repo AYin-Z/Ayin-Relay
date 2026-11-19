@@ -110,7 +110,7 @@ The [deployment staging command](../RELEASE.md#stage-the-signed-configuration) p
 }
 ```
 
-The timestamp trust bundle is optional. The service uses [osslsigncode](https://github.com/mtrojnar/osslsigncode/blob/master/osslsigncode.md) 2.13 or newer from its trusted executable path. During startup it checks the signed EXE hash, validates its Authenticode signature against the configured trust and checks the publisher pin. It serves the verified private copy until the service restarts. Production Windows acceptance independently checks trust and the displayed publisher.
+A trusted timestamp is required on the publisher signature. Set the optional timestamp trust bundle to choose the approved time-stamp authority roots. The service uses [osslsigncode](https://github.com/mtrojnar/osslsigncode/blob/master/osslsigncode.md) 2.13 or newer from its trusted executable path. During startup it checks the signed EXE hash, validates its Authenticode signature against the configured trust and checks the publisher pin. It serves the verified private copy until the service restarts. Production Windows acceptance independently checks trust and the displayed publisher.
 
 The protected download page offers `GET /relay/private/windows.exe` once verification succeeds. If verification fails, the EXE route returns 503 and the ZIP remains available. Downloading the fixed EXE does not issue an invitation. Browser approval issues the bound invitation when the installer is ready. EXE downloads and enrollment have separate limits. The ZIP remains a fallback.
 

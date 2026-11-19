@@ -80,6 +80,21 @@ class SignedInstallerTests(unittest.IsolatedAsyncioTestCase):
                 self.release.snapshot(target)
         self.assertEqual(list(target.iterdir()), [])
 
+    def test_missing_or_untrusted_timestamp_removes_the_snapshot(self) -> None:
+        target = self.directory / "private"
+        target.mkdir()
+        for output in (b"Signature verification: ok", b"Timestamp is not available",
+                       b"Timestamp Server Signature verification: failed",
+                       b"Timestamp Server Signature verification: ok\nTimestamp is not available",
+                       b"Timestamp Server Signature verification: ok\nTimestamp Server Signature verification: failed"):
+            with self.subTest(output=output), patch(
+                "plugin.installer_release.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 0, stdout=output),
+            ):
+                with self.assertRaisesRegex(ValueError, "trusted Authenticode timestamp"):
+                    self.release.snapshot(target)
+                self.assertEqual(list(target.iterdir()), [])
+
     def test_source_symlink_is_rejected(self) -> None:
         target = self.directory / "private"
         target.mkdir()
@@ -113,8 +128,10 @@ class SignedInstallerTests(unittest.IsolatedAsyncioTestCase):
                 raise web.HTTPUnauthorized()
             return "user"
 
-        with patch("plugin.installer_release.subprocess.run") as verification, \
-             patch.object(AccessJWTVerifier, "verify", identity):
+        with patch(
+            "plugin.installer_release.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, stdout=b"Timestamp Server Signature verification: ok\n"),
+        ) as verification, patch.object(AccessJWTVerifier, "verify", identity):
             async with TestClient(TestServer(application)) as client:
                 (command,), verify_options = verification.call_args
                 self.assertEqual(command[:3], ["osslsigncode", "verify", "-in"])
@@ -122,6 +139,7 @@ class SignedInstallerTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn(str(self.release.trust_bundle), command)
                 self.assertIn(str(self.release.timestamp_trust_bundle), command)
                 self.assertIn("-ignore-cdp", command)
+                self.assertEqual(command[command.index("-index") + 1], "0")
                 self.assertTrue(verify_options["check"])
                 snapshot = Path(command[3])
                 self.assertNotEqual(snapshot, self.exe)

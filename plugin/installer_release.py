@@ -98,14 +98,22 @@ class InstallerRelease:
             # Verify a configured local artifact without following network URLs
             # that might have been embedded in the publisher's certificates.
             command = ["osslsigncode", "verify", "-in", str(snapshot), "-CAfile", str(self.trust_bundle),
-                       "-require-leaf-hash", f"sha256:{self.signer_sha256}", "-ignore-cdp"]
+                       "-require-leaf-hash", f"sha256:{self.signer_sha256}", "-ignore-cdp", "-index", "0"]
             if self.timestamp_trust_bundle is not None:
                 command.extend(("-TSA-CAfile", str(self.timestamp_trust_bundle)))
             try:
-                subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                               stderr=subprocess.DEVNULL, check=True, timeout=30)
+                verified = subprocess.run(command, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                                          stderr=subprocess.DEVNULL, check=True, timeout=30)
             except (OSError, subprocess.SubprocessError) as error:
                 raise ValueError("installer Authenticode verification failed") from error
+            # osslsigncode accepts a valid publisher signature even when its
+            # timestamp is missing or untrusted. Index 0 binds both checks to
+            # the same signature used for the publisher pin.
+            results = verified.stdout.splitlines()
+            if (b"Timestamp Server Signature verification: ok" not in results
+                    or b"Timestamp is not available" in results
+                    or b"Timestamp Server Signature verification: failed" in results):
+                raise ValueError("installer requires a trusted Authenticode timestamp")
             return snapshot
         except BaseException:
             if created:
