@@ -11,9 +11,12 @@ from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
+from multidict import CIMultiDict
+
 from plugin.relay.channels.desktop import DesktopHandler, DesktopError, TRANSFER_CHUNK_SIZE
 from plugin.tests.test_desktop_multidevice import _register_two
 from plugin.tools import desktop_tool
+from plugin.relay.config import RelayConfig
 from plugin.relay.server import handle_desktop_transfer_push, handle_desktop_transfer_pull
 from aiohttp import web
 
@@ -148,8 +151,9 @@ class DesktopTransferTests(unittest.IsolatedAsyncioTestCase):
 class TransferRouteTests(unittest.IsolatedAsyncioTestCase):
     def request(self, body: Any, remote: str = '127.0.0.1') -> Any:
         desktop = Mock(push_file=AsyncMock(), pull_file=AsyncMock())
-        return Mock(remote=remote, headers={}, json=AsyncMock(return_value=body),
-                    app={'server': Mock(desktop=desktop)})
+        host = '127.0.0.1:8767'
+        return Mock(remote=remote, host=host, headers=CIMultiDict({'Host': host}), json=AsyncMock(return_value=body),
+                    app={'server': Mock(desktop=desktop, config=RelayConfig(port=8767))})
 
     async def test_remote_requests_are_rejected(self) -> None:
         for route in (handle_desktop_transfer_push, handle_desktop_transfer_pull):

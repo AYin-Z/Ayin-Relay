@@ -9,12 +9,15 @@ from dataclasses import dataclass
 from typing import Any
 from unittest.mock import AsyncMock, Mock, patch
 
+from multidict import CIMultiDict
+
 from plugin.relay.channels.desktop import (
     DesktopCommandRecord,
     DesktopError,
     DesktopHandler,
     DesktopRequesterContext,
 )
+from plugin.relay.config import RelayConfig
 from plugin.relay.server import handle_desktop_dispatch
 from plugin.tools import desktop_tool
 
@@ -168,10 +171,10 @@ class DesktopMultiDeviceTests(unittest.IsolatedAsyncioTestCase):
         desktop = Mock()
         desktop.handle_command = AsyncMock(return_value={"ok": True, "result": {}})
         request = Mock(
-            remote="127.0.0.1",
-            app={"server": Mock(desktop=desktop)},
+            remote="127.0.0.1", host="127.0.0.1:8767",
+            app={"server": Mock(desktop=desktop, config=RelayConfig(port=8767))},
             match_info={"tool_name": "desktop_powershell"},
-            headers={},
+            headers=CIMultiDict({"Host": "127.0.0.1:8767"}),
         )
         request.json = AsyncMock(
             return_value={"script": "'ok'", "device": "desktop-1"}
@@ -191,14 +194,15 @@ class DesktopMultiDeviceTests(unittest.IsolatedAsyncioTestCase):
         desktop = Mock()
         desktop.handle_command = AsyncMock(return_value={"ok": True, "result": {}})
         request = Mock(
-            remote="127.0.0.1",
-            app={"server": Mock(desktop=desktop)},
+            remote="127.0.0.1", host="127.0.0.1:8767",
+            app={"server": Mock(desktop=desktop, config=RelayConfig(port=8767))},
             match_info={"tool_name": "desktop_computer_snapshot"},
-            headers={
+            headers=CIMultiDict({
+                "Host": "127.0.0.1:8767",
                 "X-Hermes-Relay-Chat-Session": "chat-1",
                 "X-Hermes-Relay-Run-Id": "run-1",
                 "X-Hermes-Relay-Profile": "default",
-            },
+            }),
         )
         request.json = AsyncMock(return_value={"device": "desktop-1"})
 
@@ -220,16 +224,17 @@ class DesktopMultiDeviceTests(unittest.IsolatedAsyncioTestCase):
     async def test_http_dispatch_prefers_authenticated_paired_requester(self) -> None:
         desktop = Mock()
         desktop.handle_command = AsyncMock(return_value={"ok": True, "result": {}})
-        server = Mock(desktop=desktop)
+        server = Mock(desktop=desktop, config=RelayConfig(port=8767))
         request = Mock(
-            remote="127.0.0.1",
+            remote="127.0.0.1", host="127.0.0.1:8767",
             app={"server": server},
             match_info={"tool_name": "desktop_computer_snapshot"},
-            headers={
+            headers=CIMultiDict({
+                "Host": "127.0.0.1:8767",
                 "Authorization": "Bearer authenticated-token",
                 "X-Hermes-Relay-Chat-Session": "chat-1",
                 "X-Hermes-Relay-Run-Id": "run-1",
-            },
+            }),
         )
         request.json = AsyncMock(return_value={"device": "desktop-1"})
         paired_session = Mock(device_id="paired-phone-1")

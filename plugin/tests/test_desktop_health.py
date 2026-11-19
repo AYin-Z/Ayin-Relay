@@ -20,7 +20,10 @@ import asyncio
 import unittest
 from typing import Any
 
+from multidict import CIMultiDict
+
 from plugin.relay.channels.desktop import DesktopHandler
+from plugin.relay.config import RelayConfig
 from plugin.relay.server import handle_desktop_health, handle_desktop_ping
 
 
@@ -39,6 +42,8 @@ class _FakeWs:
 class _FakeRequest:
     def __init__(self, remote: str, server: Any) -> None:
         self.remote = remote
+        self.host = "127.0.0.1:8767"
+        self.headers = CIMultiDict({"Host": self.host})
         self.app = {"server": server}
         # /desktop/health uses GET with no params.
         self.query: dict[str, str] = {}
@@ -47,6 +52,7 @@ class _FakeRequest:
 class _FakeServer:
     def __init__(self, desktop: DesktopHandler) -> None:
         self.desktop = desktop
+        self.config = RelayConfig(port=8767)
 
 
 SAMPLE_STATUS_PAYLOAD: dict[str, Any] = {

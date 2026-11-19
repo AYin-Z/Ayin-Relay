@@ -13,6 +13,7 @@ from aiohttp import web
 from aiohttp.test_utils import TestServer
 
 from plugin.relay.channels.desktop import DesktopError, DesktopHandler
+from plugin.relay.config import RelayConfig
 from plugin.relay.server import handle_desktop_dispatch
 from plugin.tools import desktop_tool
 
@@ -125,9 +126,10 @@ class DesktopStrictIdTests(unittest.IsolatedAsyncioTestCase):
         handler = DesktopHandler()
         target = await connect(handler, "exact-id", "friendly", respond=True)
         app = web.Application()
-        app["server"] = SimpleNamespace(desktop=handler)
+        app["server"] = SimpleNamespace(desktop=handler, config=RelayConfig())
         app.router.add_post("/desktop/{tool_name}", handle_desktop_dispatch)
         async with TestServer(app) as server:
+            app["server"].config.port = server.port
             with patch.dict("os.environ", DESKTOP_RELAY_URL=str(server.make_url("")).rstrip("/")):
                 for selectors in ({"device_id": "exact-id"}, {"device": "friendly", "device_id": "exact-id"},
                                   {"device": None, "device_id": "exact-id"}):
@@ -166,9 +168,10 @@ class DesktopStrictIdTests(unittest.IsolatedAsyncioTestCase):
         first = await connect(handler, "first-id", "first", respond=True)
         second = await connect(handler, "second-id", "second", respond=True)
         app = web.Application()
-        app["server"] = SimpleNamespace(desktop=handler)
+        app["server"] = SimpleNamespace(desktop=handler, config=RelayConfig())
         app.router.add_post("/desktop/{tool_name}", handle_desktop_dispatch)
         async with TestServer(app) as server:
+            app["server"].config.port = server.port
             with patch.dict("os.environ", DESKTOP_RELAY_URL=str(server.make_url("")).rstrip("/")):
                 results = await asyncio.gather(*(
                     asyncio.to_thread(desktop_tool._HANDLERS["desktop_powershell"],
