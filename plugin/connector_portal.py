@@ -295,7 +295,10 @@ async def security_headers(request: web.Request, handler: Callable[[web.Request]
         for header in ("Retry-After", "Allow", "WWW-Authenticate"):
             if header in error.headers:
                 response.headers[header] = error.headers[header]
-    response.headers.update(_SECURITY_HEADERS)
+    headers = dict(_SECURITY_HEADERS)
+    if "Content-Security-Policy" in response.headers:
+        headers["Content-Security-Policy"] = response.headers["Content-Security-Policy"]
+    response.headers.update(headers)
     return response
 
 
@@ -445,17 +448,26 @@ def create_app(config: PortalConfig) -> web.Application:
     def enrollment_scope(subject: str, port: str, state: str, challenge: str) -> str:
         return f"{subject}\nenroll:{port}:{state}:{challenge}"
 
+    def enrollment_callback(port: str) -> str:
+        return f"http://127.0.0.1:{port}/ayin-relay/enrollment"
+
     async def enrollment_page(request: web.Request) -> web.Response:
         subject = await identity(request)
         port, state, challenge = enrollment_parameters(request.query)
         token = csrf.issue(enrollment_scope(subject, port, state, challenge))
         target = f"{config.prefix}/private/enroll"
-        return _page("注册 Windows 节点", f"""<h1>注册这台 Windows 电脑</h1>
+        response = _page("注册 Windows 节点", f"""<h1>注册这台 Windows 电脑</h1>
 <p>请核对安装程序上显示的确认标识 <strong>{state[:8].upper()}</strong>。只有标识一致时才继续。</p>
 <p>确认后会把一次性注册请求交回这台电脑的安装程序。</p>
 <form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}">
 <input type="hidden" name="port" value="{port}"><input type="hidden" name="state" value="{state}">
 <input type="hidden" name="challenge" value="{challenge}"><button type="submit">确认注册</button></form>""")
+        # Chromium checks form-action when following the approval redirect.
+        # Allow only this installer's validated loopback callback.
+        response.headers["Content-Security-Policy"] = _SECURITY_HEADERS["Content-Security-Policy"].replace(
+            "form-action 'self'", f"form-action 'self' {enrollment_callback(port)}",
+        )
+        return response
 
     async def approve_enrollment(request: web.Request) -> web.Response:
         subject = await identity(request)
@@ -478,7 +490,7 @@ def create_app(config: PortalConfig) -> web.Application:
         # The redirect is constructed from a validated numeric port, never from
         # a browser-supplied URL. The original verifier stays with the installer.
         query = urlencode({"state": state, "invite": invite, "expires_at": expires_at, "relay_url": config.relay_url})
-        return web.HTTPSeeOther(location=f"http://127.0.0.1:{port}/ayin-relay/enrollment?{query}")
+        return web.HTTPSeeOther(location=f"{enrollment_callback(port)}?{query}")
 
     app.cleanup_ctx.append(resources)
     app.router.add_get(config.prefix + "/", landing)
