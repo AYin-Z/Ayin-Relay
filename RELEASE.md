@@ -59,6 +59,8 @@ python scripts/build-signed-windows-connector.py `
 
 If SignTool or NSIS is outside PATH, pass its full path with `--signtool` or `--makensis`. Use a new output directory under an existing parent. The command builds from the selected Git commit in a temporary directory, signs the node before embedding it, then signs the outer installer. It checks both embedded signatures, timestamps, publisher pins and product metadata before making the output available.
 
+Both EXEs use the product name Ayin-Relay and the same four-part Windows product version. Their file descriptions identify the node or installer and carry the full release version, including any prerelease suffix.
+
 The output contains the signed node `hermes-relay-win-x64.exe`, the signed private installer `Ayin-Relay-Setup-x64.exe` and `release.json` with the source commit, version, publisher fingerprint and SHA-256 of each finished file. Configure the portal with the installer entry and the update offer with the node entry. Keep this installer within its intended authenticated download portal. See [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
 
 When a hosted signing provider returns signed files, sign the node first, embed that exact signed node with the selected version and source commit, then sign the resulting installer. On a Windows host with SignTool, place the two signed files in one directory under the filenames above. Use the import command below.

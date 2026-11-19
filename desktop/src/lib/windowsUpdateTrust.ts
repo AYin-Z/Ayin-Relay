@@ -27,7 +27,7 @@ export function requireSameWindowsPublisher(output: string): void {
   }
 }
 
-const windowsNodeProduct = 'Ayin-Relay Windows Node'
+const windowsProduct = 'Ayin-Relay'
 
 export function requireWindowsNodeVersion(output: string, expectedVersion: string): void {
   const lines = output.trim().split(/\r?\n/)
@@ -35,8 +35,8 @@ export function requireWindowsNodeVersion(output: string, expectedVersion: strin
   requireSameWindowsPublisher(lines.slice(0, 2).join('\n'))
   const identity: unknown = JSON.parse(lines[2]!)
   if (!identity || typeof identity !== 'object' ||
-      !('product' in identity) || identity.product !== windowsNodeProduct ||
-      !('description' in identity) || identity.description !== `${windowsNodeProduct} ${expectedVersion}`) {
+      !('product' in identity) || identity.product !== windowsProduct ||
+      !('description' in identity) || identity.description !== `Ayin-Relay Windows Node ${expectedVersion}`) {
     throw new Error('Windows node update does not match the approved product and version')
   }
 }

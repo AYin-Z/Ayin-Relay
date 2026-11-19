@@ -12,7 +12,7 @@ const args = [
   'src/bunWindowsEntry.ts', '--outfile', 'dist/bin/hermes-relay-win-x64'
 ]
 if (process.platform === 'win32') {
-  args.push('--windows-title=Ayin-Relay Windows Node',
+  args.push('--windows-title=Ayin-Relay',
     `--windows-description=Ayin-Relay Windows Node ${version}`,
     `--windows-version=${major}.${minor}.${patch}.0`)
 } else {

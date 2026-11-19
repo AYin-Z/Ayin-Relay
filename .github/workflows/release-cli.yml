@@ -218,8 +218,9 @@ jobs:
           $ErrorActionPreference = 'Stop'
           $exe = (Resolve-Path 'desktop/dist/bin/hermes-relay-win-x64.exe').Path
           $product = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
-          if ($product.ProductName -ne 'Ayin-Relay Windows Node' -or
-              $product.FileDescription -ne "Ayin-Relay Windows Node $env:EXPECTED_DESKTOP_VERSION") {
+          $productVersion = ($env:EXPECTED_DESKTOP_VERSION -split '[-+]', 2)[0] + '.0'
+          if ($product.ProductName -cne 'Ayin-Relay' -or $product.ProductVersion -cne $productVersion -or
+              $product.FileDescription -cne "Ayin-Relay Windows Node $env:EXPECTED_DESKTOP_VERSION") {
             throw 'Windows node product or version metadata does not match the release'
           }
           if ((Get-Item -LiteralPath $exe).Length -gt 150MB) { throw 'Windows node exceeds 150 MB' }

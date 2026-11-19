@@ -21,8 +21,9 @@ from zipfile import ZipFile
 ROOT = Path(__file__).resolve().parents[1]
 NODE_NAME = "hermes-relay-win-x64.exe"
 INSTALLER_NAME = "Ayin-Relay-Setup-x64.exe"
-NODE_PRODUCT = "Ayin-Relay Windows Node"
-INSTALLER_PRODUCT = "Ayin-Relay Windows Connector"
+PRODUCT_NAME = "Ayin-Relay"
+NODE_DESCRIPTION = "Ayin-Relay Windows Node"
+INSTALLER_DESCRIPTION = "Ayin-Relay Windows Connector Setup"
 MAX_ARTIFACT_BYTES = 128 * 1024 * 1024
 
 _PUBLISHER_HASH = r"""
@@ -50,7 +51,7 @@ if ($signature.Status -ne 'Valid' -or -not $signature.SignerCertificate -or -not
     throw 'A valid Authenticode signature and trusted timestamp are required'
 }
 $metadata = [Diagnostics.FileVersionInfo]::GetVersionInfo($path)
-@{ publisher = (Get-PublisherHash $signature.SignerCertificate); product = $metadata.ProductName; description = $metadata.FileDescription } | ConvertTo-Json -Compress
+@{ publisher = (Get-PublisherHash $signature.SignerCertificate); product = $metadata.ProductName; version = $metadata.ProductVersion; description = $metadata.FileDescription } | ConvertTo-Json -Compress
 """
 
 def _tool(name: str) -> str:
@@ -100,7 +101,7 @@ def _sign(
     certificate_sha1: str,
     publisher_sha256: str,
     timestamp_url: str,
-    product: str,
+    version: str,
     description: str,
 ) -> dict[str, Any]:
     subprocess.run(
@@ -110,7 +111,7 @@ def _sign(
     )
     return _verify_signed_artifact(
         path, signtool=signtool, powershell=powershell, publisher_sha256=publisher_sha256,
-        product=product, description=description,
+        version=version, description=description,
     )
 
 
@@ -120,7 +121,7 @@ def _verify_signed_artifact(
     signtool: str,
     powershell: str,
     publisher_sha256: str,
-    product: str,
+    version: str,
     description: str,
 ) -> dict[str, Any]:
     # Without a catalog selector, SignTool verifies the embedded signature.
@@ -129,7 +130,8 @@ def _verify_signed_artifact(
     info = json.loads(_inspect(powershell, _INSPECT_SIGNATURE, AYIN_SIGNED_CONNECTOR_ARTIFACT=str(path)))
     if info["publisher"] != publisher_sha256:
         raise ValueError("signed artifact does not match the approved publisher")
-    if (info["product"], info["description"]) != (product, description):
+    product_version = re.split(r"[-+]", version, maxsplit=1)[0] + ".0"
+    if (info["product"], info["version"], info["description"]) != (PRODUCT_NAME, product_version, description):
         raise ValueError(f"signed artifact has unexpected product or version metadata: {path.name}")
     with path.open("rb") as stream:
         size = os.fstat(stream.fileno()).st_size
@@ -208,11 +210,11 @@ def import_signed_release(
         _require_x64(node)
         node_info = _verify_signed_artifact(
             node, signtool=signtool, powershell=powershell, publisher_sha256=publisher_sha256,
-            product=NODE_PRODUCT, description=f"{NODE_PRODUCT} {version}",
+            version=version, description=f"{NODE_DESCRIPTION} {version}",
         )
         installer_info = _verify_signed_artifact(
             release / INSTALLER_NAME, signtool=signtool, powershell=powershell, publisher_sha256=publisher_sha256,
-            product=INSTALLER_PRODUCT, description=f"{INSTALLER_PRODUCT} Setup",
+            version=version, description=f"{INSTALLER_DESCRIPTION} {version}",
         )
         return _publish_release(
             release, output, source_sha=source_sha, version=version, publisher_sha256=publisher_sha256,
@@ -268,7 +270,7 @@ def build_release(
         node = release / NODE_NAME
         shutil.copyfile(desktop / "dist" / "bin" / NODE_NAME, node)
         _require_x64(node)
-        node_info = _sign(node, **signing, product=NODE_PRODUCT, description=f"{NODE_PRODUCT} {version}")
+        node_info = _sign(node, **signing, version=version, description=f"{NODE_DESCRIPTION} {version}")
 
         installer = release / INSTALLER_NAME
         subprocess.run([
@@ -277,8 +279,8 @@ def build_release(
             "--version", version, "--browser-portal", browser_portal, "--relay-url", relay_url,
             "--makensis", makensis,
         ], cwd=source, check=True)
-        installer_info = _sign(installer, **signing, product=INSTALLER_PRODUCT,
-                               description=f"{INSTALLER_PRODUCT} Setup")
+        installer_info = _sign(installer, **signing, version=version,
+                               description=f"{INSTALLER_DESCRIPTION} {version}")
 
         return _publish_release(
             release, output, source_sha=source_sha, version=version, publisher_sha256=publisher_sha256,

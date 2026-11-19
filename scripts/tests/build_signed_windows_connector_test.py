@@ -87,11 +87,12 @@ class SignedConnectorTests(unittest.TestCase):
             self.assertIn("TimeStamperCertificate", args[-1])
             node = path.name == builder.NODE_NAME
             report = {"publisher": ("0" * 64 if self.wrong_publisher else PUBLISHER),
-                      "product": builder.NODE_PRODUCT if node else builder.INSTALLER_PRODUCT,
-                      "description": (f"{builder.NODE_PRODUCT} {VERSION}" if node else
-                                      f"{builder.INSTALLER_PRODUCT} Setup")}
+                      "product": "Ayin-Relay",
+                      "version": "1.2.3.0",
+                      "description": (f"Ayin-Relay Windows Node {VERSION}" if node else
+                                      f"Ayin-Relay Windows Connector Setup {VERSION}")}
             if self.wrong_metadata:
-                report["description"] = "wrong version"
+                report["version"] = "1.2.2.0"
             return subprocess.CompletedProcess(args, 0, json.dumps(report))
         elif args[1].endswith("package-desktop-connector.py"):
             self.calls.append("package")

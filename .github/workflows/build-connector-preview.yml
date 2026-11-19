@@ -140,8 +140,12 @@ jobs:
               $manifest.version -cne $version -or $manifest.sha256 -cne $nodeHash -or $nodeHash -cne $builtHash) {
             throw 'The embedded manifest does not match the source, version, and node hash.'
           }
-          if ($installer.VersionInfo.ProductName -cne 'Ayin-Relay Windows Connector' -or
-              $node.VersionInfo.ProductName -cne 'Ayin-Relay Windows Node' -or
+          $productVersion = ($version -split '[-+]', 2)[0] + '.0'
+          if ($installer.VersionInfo.ProductName -cne 'Ayin-Relay' -or
+              $node.VersionInfo.ProductName -cne 'Ayin-Relay' -or
+              $installer.VersionInfo.ProductVersion -cne $productVersion -or
+              $node.VersionInfo.ProductVersion -cne $productVersion -or
+              $installer.VersionInfo.FileDescription -cne "Ayin-Relay Windows Connector Setup $version" -or
               $node.VersionInfo.FileDescription -cne "Ayin-Relay Windows Node $version") {
             throw 'Windows product metadata does not match the connector preview.'
           }
