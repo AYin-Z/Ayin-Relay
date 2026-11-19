@@ -133,8 +133,11 @@ def package_exe(binary: Path, output: Path, source_sha: str, version: str,
         candidate = stage / "candidate.exe"
         switch = "/" if os.name == "nt" else "-"
         version_num = re.split(r"[-+]", version, maxsplit=1)[0] + ".0"
-        subprocess.run([makensis, f"{switch}DPAYLOAD={stage}", f"{switch}DOUTPUT={candidate}",
-                        f"{switch}DVERSION_NUM={version_num}", str(INSTALLER_DIR / "setup.nsi")],
+        # MakeNSIS resolves File entries relative to its script directory.
+        setup_script = stage / "setup.nsi"
+        shutil.copyfile(INSTALLER_DIR / setup_script.name, setup_script)
+        subprocess.run([makensis, f"{switch}DOUTPUT={candidate}",
+                        f"{switch}DVERSION_NUM={version_num}", str(setup_script)],
                        check=True)
         os.link(candidate, output)
         return manifest
