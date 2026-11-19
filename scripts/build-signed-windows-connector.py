@@ -1,4 +1,4 @@
-"""Build a signed Ayin-Relay node and private installer from one Git commit."""
+"""Prepare a signed Ayin-Relay node and private installer from one Git commit."""
 
 from __future__ import annotations
 
@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -107,6 +108,21 @@ def _sign(
          "/tr", timestamp_url, "/td", "SHA256", str(path)],
         check=True,
     )
+    return _verify_signed_artifact(
+        path, signtool=signtool, powershell=powershell, publisher_sha256=publisher_sha256,
+        product=product, description=description,
+    )
+
+
+def _verify_signed_artifact(
+    path: Path,
+    *,
+    signtool: str,
+    powershell: str,
+    publisher_sha256: str,
+    product: str,
+    description: str,
+) -> dict[str, Any]:
     # Without a catalog selector, SignTool verifies the embedded signature.
     # /tw warns on a missing timestamp, and check=True also rejects warnings.
     subprocess.run([signtool, "verify", "/pa", "/all", "/tw", str(path)], check=True)
@@ -120,6 +136,88 @@ def _sign(
         if not 0 < size <= MAX_ARTIFACT_BYTES:
             raise ValueError(f"signed artifact exceeds the portal or update size limit: {path.name}")
         return {"filename": path.name, "sha256": file_digest(stream, "sha256").hexdigest(), "size": size}
+
+
+def _validate_release_request(root: Path, source_sha: str, output: Path, publisher_sha256: str) -> Path:
+    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
+        raise ValueError("source SHA must be the full lowercase Git commit SHA")
+    if not re.fullmatch(r"[0-9a-f]{64}", publisher_sha256):
+        raise ValueError("publisher pin must be the lowercase SHA-256 of its DER certificate")
+    output = output.absolute()
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f"release output already exists: {output}")
+
+    verified = subprocess.check_output(
+        ["git", "rev-parse", "--verify", f"{source_sha}^{{commit}}"], cwd=root, text=True,
+    ).strip()
+    if verified != source_sha:
+        raise ValueError("source SHA must identify a commit")
+    return output
+
+
+def _publish_release(
+    release: Path,
+    output: Path,
+    *,
+    source_sha: str,
+    version: str,
+    publisher_sha256: str,
+    node_info: dict[str, Any],
+    installer_info: dict[str, Any],
+) -> dict[str, Any]:
+    manifest = {"source_sha": source_sha, "version": version, "signer_sha256": publisher_sha256,
+                "node": node_info, "installer": installer_info}
+    (release / "release.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    # Windows rename refuses an existing destination. Keep the unpublished
+    # files on the same volume so publication moves the directory as a unit.
+    if output.exists() or output.is_symlink():
+        raise FileExistsError(f"release output already exists: {output}")
+    os.rename(release, output)
+    return manifest
+
+
+def import_signed_release(
+    *,
+    root: Path,
+    source_sha: str,
+    output: Path,
+    signed_input: Path,
+    publisher_sha256: str,
+    signtool: str,
+    powershell: str,
+) -> dict[str, Any]:
+    output = _validate_release_request(root, source_sha, output, publisher_sha256)
+    package = subprocess.check_output(
+        ["git", "show", f"{source_sha}:desktop/package.json"], cwd=root, text=True, encoding="utf-8",
+    )
+    version = json.loads(package)["version"]
+    if not isinstance(version, str):
+        raise ValueError("desktop source has no release version")
+
+    with tempfile.TemporaryDirectory(prefix=".ayin-connector-release-", dir=output.parent) as temporary:
+        release = Path(temporary) / "release"
+        release.mkdir()
+        for name in (NODE_NAME, INSTALLER_NAME):
+            artifact = signed_input / name
+            info = artifact.lstat()
+            if not stat.S_ISREG(info.st_mode) or not 0 < info.st_size <= MAX_ARTIFACT_BYTES:
+                raise ValueError(f"signed input must be a regular file within the size limit: {name}")
+            shutil.copyfile(artifact, release / name)
+
+        node = release / NODE_NAME
+        _require_x64(node)
+        node_info = _verify_signed_artifact(
+            node, signtool=signtool, powershell=powershell, publisher_sha256=publisher_sha256,
+            product=NODE_PRODUCT, description=f"{NODE_PRODUCT} {version}",
+        )
+        installer_info = _verify_signed_artifact(
+            release / INSTALLER_NAME, signtool=signtool, powershell=powershell, publisher_sha256=publisher_sha256,
+            product=INSTALLER_PRODUCT, description=f"{INSTALLER_PRODUCT} Setup",
+        )
+        return _publish_release(
+            release, output, source_sha=source_sha, version=version, publisher_sha256=publisher_sha256,
+            node_info=node_info, installer_info=installer_info,
+        )
 
 
 def build_release(
@@ -137,22 +235,10 @@ def build_release(
     npm: str,
     powershell: str,
 ) -> dict[str, Any]:
-    if not re.fullmatch(r"[0-9a-f]{40}", source_sha):
-        raise ValueError("source SHA must be the full lowercase Git commit SHA")
     if not re.fullmatch(r"[0-9a-fA-F]{40}", certificate_sha1):
         raise ValueError("certificate selector must be the 40-character Windows thumbprint")
-    if not re.fullmatch(r"[0-9a-f]{64}", publisher_sha256):
-        raise ValueError("publisher pin must be the lowercase SHA-256 of its DER certificate")
     _validate_timestamp_url(timestamp_url)
-    output = output.absolute()
-    if output.exists() or output.is_symlink():
-        raise FileExistsError(f"release output already exists: {output}")
-
-    verified = subprocess.check_output(
-        ["git", "rev-parse", "--verify", f"{source_sha}^{{commit}}"], cwd=root, text=True,
-    ).strip()
-    if verified != source_sha:
-        raise ValueError("source SHA must identify a commit")
+    output = _validate_release_request(root, source_sha, output, publisher_sha256)
 
     certificate_pin = _inspect(
         powershell, _INSPECT_CERTIFICATE, AYIN_CONNECTOR_CERT_SELECTOR=certificate_sha1,
@@ -194,40 +280,48 @@ def build_release(
         installer_info = _sign(installer, **signing, product=INSTALLER_PRODUCT,
                                description=f"{INSTALLER_PRODUCT} Setup")
 
-        manifest = {"source_sha": source_sha, "version": version, "signer_sha256": publisher_sha256,
-                    "node": node_info, "installer": installer_info}
-        (release / "release.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
-        # Windows rename refuses an existing destination. Keep the unpublished
-        # files on the same volume so publication moves the directory as a unit.
-        if output.exists() or output.is_symlink():
-            raise FileExistsError(f"release output already exists: {output}")
-        os.rename(release, output)
-        return manifest
+        return _publish_release(
+            release, output, source_sha=source_sha, version=version, publisher_sha256=publisher_sha256,
+            node_info=node_info, installer_info=installer_info,
+        )
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--source-sha", required=True, help="full commit SHA selected for release")
     parser.add_argument("--output", required=True, type=Path, help="new directory under an existing parent")
-    parser.add_argument("--certificate-sha1", required=True, help="certificate selector in CurrentUser\\My")
+    parser.add_argument("--signed-input", type=Path, help="directory containing the provider-signed node and installer")
+    parser.add_argument("--certificate-sha1", help="certificate selector in CurrentUser\\My")
     parser.add_argument("--publisher-sha256", required=True, help="approved signing certificate's DER SHA-256")
-    parser.add_argument("--timestamp-url", required=True, help="HTTPS RFC 3161 timestamp service")
-    parser.add_argument("--browser-portal", required=True, help="HTTPS private enrollment URL for this deployment")
-    parser.add_argument("--relay-url", required=True, help="WSS Relay origin expected by the installer")
+    parser.add_argument("--timestamp-url", help="HTTPS RFC 3161 timestamp service")
+    parser.add_argument("--browser-portal", help="HTTPS private enrollment URL for this deployment")
+    parser.add_argument("--relay-url", help="WSS Relay origin expected by the installer")
     parser.add_argument("--signtool", default="signtool.exe")
     parser.add_argument("--makensis", default="makensis.exe")
     args = parser.parse_args(argv)
+    local_options = (args.certificate_sha1, args.timestamp_url, args.browser_portal, args.relay_url)
+    if args.signed_input is not None:
+        if any(option is not None for option in local_options):
+            parser.error("--signed-input cannot be combined with local signing and packaging options")
+    elif not all(local_options):
+        parser.error("local builds require --certificate-sha1, --timestamp-url, --browser-portal and --relay-url")
     if os.name != "nt":
-        parser.exit(1, "Signed connector release builds require native Windows.\n")
+        parser.exit(1, "Signed connector release preparation requires native Windows.\n")
     try:
-        report = build_release(
-            root=ROOT, source_sha=args.source_sha, output=args.output,
-            certificate_sha1=args.certificate_sha1, publisher_sha256=args.publisher_sha256,
-            timestamp_url=args.timestamp_url, browser_portal=args.browser_portal, relay_url=args.relay_url,
-            signtool=_tool(args.signtool), makensis=_tool(args.makensis), npm=_tool("npm.cmd"),
-            powershell=_tool(str(Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell"
-                                 / "v1.0" / "powershell.exe")),
-        )
+        common = {
+            "root": ROOT, "source_sha": args.source_sha, "output": args.output,
+            "publisher_sha256": args.publisher_sha256, "signtool": _tool(args.signtool),
+            "powershell": _tool(str(Path(os.environ["SystemRoot"]) / "System32" / "WindowsPowerShell"
+                                    / "v1.0" / "powershell.exe")),
+        }
+        if args.signed_input is not None:
+            report = import_signed_release(**common, signed_input=args.signed_input)
+        else:
+            report = build_release(
+                **common, certificate_sha1=args.certificate_sha1, timestamp_url=args.timestamp_url,
+                browser_portal=args.browser_portal, relay_url=args.relay_url,
+                makensis=_tool(args.makensis), npm=_tool("npm.cmd"),
+            )
     except (OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         parser.exit(1, f"Signed connector release failed: {error}\n")
     print(f"Verified Ayin-Relay Windows {report['version']} release prepared in {args.output}")

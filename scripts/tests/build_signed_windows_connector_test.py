@@ -36,8 +36,15 @@ class SignedConnectorTests(unittest.TestCase):
         self.wrong_publisher = False
         self.wrong_metadata = False
         self.wrong_architecture = False
-        self.enterContext(patch.object(builder.subprocess, "check_output", return_value=SOURCE + "\n"))
+        self.enterContext(patch.object(builder.subprocess, "check_output", side_effect=self.read_git))
         self.enterContext(patch.object(builder.subprocess, "run", side_effect=self.invoke))
+
+    def read_git(self, args: list[str], **options) -> str:
+        self.assertEqual(options["cwd"], self.root)
+        if args == ["git", "show", f"{SOURCE}:desktop/package.json"]:
+            return json.dumps({"version": VERSION})
+        self.assertEqual(args, ["git", "rev-parse", "--verify", f"{SOURCE}^{{commit}}"])
+        return SOURCE + "\n"
 
     def invoke(self, args: list[str], **options):
         self.assertTrue(options["check"])
@@ -106,6 +113,56 @@ class SignedConnectorTests(unittest.TestCase):
             relay_url="wss://relay.example.test/ws", signtool="signtool.exe",
             makensis="makensis.exe", npm="npm.cmd", powershell="powershell.exe",
         )
+
+    def signed_inputs(self) -> tuple[Path, dict[str, bytes]]:
+        path = self.root / "signed-input"
+        path.mkdir()
+        header = b"MZ" + bytes(58) + (64).to_bytes(4, "little")
+        node = header + b"PE\0\0\x64\x86node" + SIGNATURE
+        artifacts = {builder.NODE_NAME: node, builder.INSTALLER_NAME: b"installer containing " + node + SIGNATURE}
+        for name, data in artifacts.items():
+            (path / name).write_bytes(data)
+        return path, artifacts
+
+    def import_release(self, signed_input: Path) -> dict:
+        return builder.import_signed_release(
+            root=self.root, source_sha=SOURCE, output=self.output, signed_input=signed_input,
+            publisher_sha256=PUBLISHER, signtool="signtool.exe", powershell="powershell.exe",
+        )
+
+    def test_import_verifies_provider_bytes_against_the_selected_commit(self) -> None:
+        signed_input, artifacts = self.signed_inputs()
+        (signed_input / "release.json").write_text('{"version": "untrusted"}', encoding="utf-8")
+        manifest = self.import_release(signed_input)
+        self.assertEqual(self.calls, [
+            f"verify {builder.NODE_NAME}", f"inspect {builder.NODE_NAME}",
+            f"verify {builder.INSTALLER_NAME}", f"inspect {builder.INSTALLER_NAME}",
+        ])
+        self.assertEqual(set(item.name for item in self.output.iterdir()), {*artifacts, "release.json"})
+        self.assertEqual(json.loads((self.output / "release.json").read_bytes()), manifest)
+        self.assertEqual((manifest["source_sha"], manifest["signer_sha256"], manifest["version"]),
+                         (SOURCE, PUBLISHER, VERSION))
+        for label in ("node", "installer"):
+            entry = manifest[label]
+            data = artifacts[entry["filename"]]
+            self.assertEqual((signed_input / entry["filename"]).read_bytes(), data)
+            self.assertEqual((self.output / entry["filename"]).read_bytes(), data)
+            self.assertEqual((entry["sha256"], entry["size"]), (sha256(data).hexdigest(), len(data)))
+
+    def test_import_does_not_publish_when_the_wrapper_fails_verification(self) -> None:
+        signed_input, _ = self.signed_inputs()
+        self.bad_signature = True
+        with self.assertRaises(subprocess.CalledProcessError):
+            self.import_release(signed_input)
+        self.assertEqual(list(self.root.iterdir()), [signed_input])
+
+    def test_import_requires_both_artifacts_to_be_regular_nonempty_files(self) -> None:
+        signed_input, _ = self.signed_inputs()
+        (signed_input / builder.INSTALLER_NAME).write_bytes(b"")
+        with self.assertRaisesRegex(ValueError, "regular file within the size limit"):
+            self.import_release(signed_input)
+        self.assertEqual(self.calls, [])
+        self.assertEqual(list(self.root.iterdir()), [signed_input])
 
     def test_publishes_exact_final_signed_files_only_after_both_signatures(self) -> None:
         manifest = self.build()
