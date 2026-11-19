@@ -30,6 +30,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Desktop-only credentials cannot access server voice, media, profiles, or management routes.
 - Desktop heartbeat and diagnostics report input allowed by the host policy without requiring a temporary control grant.
 
+## [0.4.0-rc.3] - 2026-11-19
+
+### Fixed
+
+- Use matching Windows product names and versions in the connector installer and node executable.
+
 ## [0.4.0-rc.2] - 2026-11-19
 
 ### Added
