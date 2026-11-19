@@ -44,6 +44,7 @@ logger = logging.getLogger(__name__)
 _CHUNK_SIZE = 256 * 1024
 _MAX_JSON_BYTES = 128 * 1024
 _INVITE = re.compile(r"[0-9a-fA-F]{64}\Z")
+_DEVICE_ID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\Z")
 _ISSUER = re.compile(r"https://[a-z0-9][a-z0-9-]*\.cloudflareaccess\.com\Z")
 _SECURITY_HEADERS = {
     "Cache-Control": "no-store, private, max-age=0", "Pragma": "no-cache",
@@ -76,6 +77,7 @@ class PortalConfig:
     window_seconds: int = 600
     browser_enrollment_enabled: bool = False
     installer_exe: InstallerRelease | None = None
+    system_trust_migration_device_id: str | None = None
 
     def __post_init__(self) -> None:
         origin, relay = urlsplit(self.public_origin), urlsplit(self.relay_url)
@@ -108,6 +110,12 @@ class PortalConfig:
             not isinstance(self.installer_exe, InstallerRelease) or not self.browser_enrollment_enabled
         ):
             raise ValueError("installer_exe requires browser enrollment")
+        device = self.system_trust_migration_device_id
+        if device is not None and (
+            not self.browser_enrollment_enabled or not isinstance(device, str)
+            or not _DEVICE_ID.fullmatch(device) or relay.port not in (None, 443)
+        ):
+            raise ValueError("certificate migration requires one exact browser-enrolled installation UUID")
         if (not 1 <= self.max_concurrent_downloads <= 8 or not 1 <= self.downloads_per_window <= 20
                 or not 10 <= self.window_seconds <= 3600):
             raise ValueError("download limits outside supported range")
@@ -330,10 +338,12 @@ def create_app(config: PortalConfig) -> web.Application:
         return await request.app[verifier_key].verify(request.headers.get("CF-Access-Jwt-Assertion", ""))
 
     async def mint_invitation(
-        session: ClientSession, challenge: str | None = None,
+        session: ClientSession, challenge: str | None = None, migration_device: str | None = None,
     ) -> tuple[str, int]:
         # Browser authentication headers never reach the local operator endpoint.
         body = {"enrollment_challenge": challenge} if challenge is not None else None
+        if body is not None and migration_device is not None:
+            body["migration_device_id"] = migration_device
         started = int(time.time())
         async with session.post(config.invite_url, allow_redirects=False, json=body) as reply:
             if reply.status != 200:
@@ -345,7 +355,7 @@ def create_app(config: PortalConfig) -> web.Application:
         max_lifetime = BROWSER_ENROLLMENT_TTL_SECONDS if challenge is not None else DESKTOP_INVITE_TTL_SECONDS
         if (not isinstance(invite, str) or not _INVITE.fullmatch(invite)
                 or type(lifetime) is not int or not 0 < lifetime <= max_lifetime
-                or grant.get("enrollment_challenge") != challenge):
+                or grant.get("enrollment_challenge") != challenge or grant.get("migration_device_id") != migration_device):
             raise ValueError("invalid local Relay invitation")
         return invite, started + lifetime
 
@@ -434,7 +444,7 @@ def create_app(config: PortalConfig) -> web.Application:
         finally:
             exe_limiter.active -= 1
 
-    def enrollment_parameters(values: MultiMapping[str | web.FileField]) -> tuple[str, str, str]:
+    def enrollment_parameters(values: MultiMapping[str | web.FileField]) -> tuple[str, str, str, str | None]:
         port, state, challenge = (values.get(name) for name in ("port", "state", "challenge"))
         if (not isinstance(port, str) or not re.fullmatch(r"[1-9][0-9]{3,4}", port)
                 or not 1024 <= int(port) <= 65535
@@ -443,25 +453,38 @@ def create_app(config: PortalConfig) -> web.Application:
             raise web.HTTPBadRequest(text="无效的安装请求。请从 Windows 安装程序重新打开。")
         if any(len(values.getall(name)) != 1 for name in ("port", "state", "challenge")):
             raise web.HTTPBadRequest(text="安装参数重复。")
-        return port, state, challenge
+        requested = values.get("migration_device_id")
+        if requested is not None and (
+            len(values.getall("migration_device_id")) != 1 or not isinstance(requested, str)
+            or not _DEVICE_ID.fullmatch(requested)
+        ):
+            raise web.HTTPBadRequest(text="无效的设备标识。")
+        if requested is not None and requested != config.system_trust_migration_device_id:
+            raise web.HTTPForbidden(text="这台设备尚未获准迁移证书信任。")
+        return port, state, challenge, requested
 
-    def enrollment_scope(subject: str, port: str, state: str, challenge: str) -> str:
-        return f"{subject}\nenroll:{port}:{state}:{challenge}"
+    def enrollment_scope(subject: str, port: str, state: str, challenge: str, migration_device: str | None) -> str:
+        return f"{subject}\nenroll:{port}:{state}:{challenge}:{migration_device or ''}"
 
     def enrollment_callback(port: str) -> str:
         return f"http://127.0.0.1:{port}/ayin-relay/enrollment"
 
     async def enrollment_page(request: web.Request) -> web.Response:
         subject = await identity(request)
-        port, state, challenge = enrollment_parameters(request.query)
-        token = csrf.issue(enrollment_scope(subject, port, state, challenge))
+        port, state, challenge, migration_device = enrollment_parameters(request.query)
+        token = csrf.issue(enrollment_scope(subject, port, state, challenge, migration_device))
         target = f"{config.prefix}/private/enroll"
+        migration = "" if migration_device is None else (
+            f"<p>为设备 <strong>{migration_device}</strong> 更新证书信任，保留这台设备的原有授权。"
+            f"连接到 <strong>{html.escape(config.relay_url)}</strong> 时使用系统证书链和主机名校验。</p>"
+            f'<input type="hidden" name="migration_device_id" value="{migration_device}">'
+        )
         response = _page("注册 Windows 节点", f"""<h1>注册这台 Windows 电脑</h1>
 <p>请核对安装程序上显示的确认标识 <strong>{state[:8].upper()}</strong>。只有标识一致时才继续。</p>
 <p>确认后会把一次性注册请求交回这台电脑的安装程序。</p>
 <form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}">
 <input type="hidden" name="port" value="{port}"><input type="hidden" name="state" value="{state}">
-<input type="hidden" name="challenge" value="{challenge}"><button type="submit">确认注册</button></form>""")
+<input type="hidden" name="challenge" value="{challenge}">{migration}<button type="submit">确认注册</button></form>""")
         # Chromium checks form-action when following the approval redirect.
         # Allow only this installer's validated loopback callback.
         response.headers["Content-Security-Policy"] = _SECURITY_HEADERS["Content-Security-Policy"].replace(
@@ -475,13 +498,13 @@ def create_app(config: PortalConfig) -> web.Application:
                 or request.content_type != "application/x-www-form-urlencoded"):
             raise web.HTTPForbidden(text="请从设备注册页确认。")
         form = await request.post()
-        port, state, challenge = enrollment_parameters(form)
+        port, state, challenge, migration_device = enrollment_parameters(form)
         token = form.get("csrf")
-        if not isinstance(token, str) or not csrf.valid(token, enrollment_scope(subject, port, state, challenge)):
+        if not isinstance(token, str) or not csrf.valid(token, enrollment_scope(subject, port, state, challenge, migration_device)):
             raise web.HTTPForbidden(text="设备注册请求已失效。")
         limiter.acquire(subject)
         try:
-            invite, expires_at = await mint_invitation(request.app[session_key], challenge)
+            invite, expires_at = await mint_invitation(request.app[session_key], challenge, migration_device)
         except (ClientError, TimeoutError, ValueError, OSError):
             logger.warning("Browser enrollment invitation could not be prepared")
             raise web.HTTPServiceUnavailable(text="暂时无法注册，请稍后重试。") from None
@@ -489,8 +512,10 @@ def create_app(config: PortalConfig) -> web.Application:
             limiter.active -= 1
         # The redirect is constructed from a validated numeric port, never from
         # a browser-supplied URL. The original verifier stays with the installer.
-        query = urlencode({"state": state, "invite": invite, "expires_at": expires_at, "relay_url": config.relay_url})
-        return web.HTTPSeeOther(location=f"{enrollment_callback(port)}?{query}")
+        callback = {"state": state, "invite": invite, "expires_at": expires_at, "relay_url": config.relay_url}
+        if migration_device is not None:
+            callback["migration_device_id"] = migration_device
+        return web.HTTPSeeOther(location=f"{enrollment_callback(port)}?{urlencode(callback)}")
 
     app.cleanup_ctx.append(resources)
     app.router.add_get(config.prefix + "/", landing)

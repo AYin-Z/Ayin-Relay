@@ -11,7 +11,7 @@ import {
 import { homedir, hostname, machine, release, type } from 'node:os'
 import { dirname, join } from 'node:path'
 
-const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
+export const DEVICE_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
 const defaultDeviceIdPath = () => join(homedir(), '.hermes', 'desktop-device-id')
 

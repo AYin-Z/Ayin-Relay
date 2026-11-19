@@ -367,3 +367,33 @@ test('successful reconnect invokes desktop readvertisement before announcing res
   sockets[1]!.open(); sockets[1]!.authOk()
   assert.deepEqual(events, ['desktop-status', 'restored'])
 })
+
+test('certificate migration sends its one-time approval only on the exact strict WSS connection', async t => {
+  const url = 'wss://relay.example.test/ws'
+  const invite = 'a'.repeat(64)
+  const verifier = 'd'.repeat(64)
+  const approved = 'a0000000-0000-4000-8000-000000000001'
+  const socket = Object.assign(new FakeWebSocket(), { url })
+  const { relay } = fixture(t, {
+    url, connectorTrustMigration: true, pairingCode: invite, enrollmentVerifier: verifier,
+    autoReconnect: false, wsFactory: (_url, _headers, pinnedPem, systemTrust) => {
+      assert.equal(pinnedPem, undefined)
+      assert.equal(systemTrust, true)
+      queueMicrotask(() => {
+        socket.open()
+        socket.frame('system', 'auth.ok', {
+          session_token: 'session-token', approved_connector_trust_migration: approved
+        })
+      })
+      return socket
+    }
+  })
+  relay.start()
+  const outcome = await relay.whenAuthResolved()
+  assert.equal(outcome.ok && outcome.meta.approvedConnectorTrustMigration, approved)
+  const { payload } = JSON.parse(socket.sent[0]!)
+  assert.equal(payload.session_token, 'session-token')
+  assert.equal(payload.connector_trust_migration, true)
+  assert.equal(payload.pairing_code, invite)
+  assert.equal(payload.enrollment_verifier, verifier)
+})

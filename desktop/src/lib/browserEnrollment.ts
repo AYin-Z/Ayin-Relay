@@ -13,7 +13,7 @@ interface BrowserEnrollmentPrompt {
   confirmationCode: string
 }
 
-type BrowserSetup = Extract<ConnectorSetup, { version: 2 }>
+type BrowserSetup = Extract<ConnectorSetup, { version: 2 | 3 }>
 
 export function enrollmentPortalUrl(value: string): URL {
   const url = new URL(value)
@@ -41,7 +41,8 @@ export async function receiveBrowserEnrollment(
   portal: string,
   remote: string,
   openApproval: (prompt: BrowserEnrollmentPrompt) => Promise<void>,
-  timeoutMs = waitMilliseconds
+  timeoutMs = waitMilliseconds,
+  migrationDeviceId?: string
 ): Promise<BrowserSetup> {
   const target = enrollmentPortalUrl(portal)
   const relayUrl = canonicalRelayUrl(remote)
@@ -64,7 +65,9 @@ export async function receiveBrowserEnrollment(
       reply(res, 404, 'Enrollment endpoint not found.')
       return
     }
-    const fields = ['state', 'invite', 'expires_at', 'relay_url'] as const
+    const migrationDevice = url.searchParams.get('migration_device_id')
+    const fields = ['state', 'invite', 'expires_at', 'relay_url']
+    if (migrationDevice !== null) fields.push('migration_device_id')
     if (accepted || url.searchParams.size !== fields.length || fields.some(field => url.searchParams.getAll(field).length !== 1)) {
       reply(res, 400, 'Invalid local enrollment response.')
       return
@@ -79,14 +82,16 @@ export async function receiveBrowserEnrollment(
     if (receivedState.length !== expectedState.length || !timingSafeEqual(expectedState, receivedState) ||
         invite.length !== 64 || !/^[0-9a-f]{64}$/i.test(invite) ||
         !/^\d{1,12}$/.test(expiration) || expiresAt <= now || expiresAt > now + 360 ||
-        canonicalRelayUrl(url.searchParams.get('relay_url')!) !== relayUrl) {
+        canonicalRelayUrl(url.searchParams.get('relay_url')!) !== relayUrl ||
+        migrationDevice !== (migrationDeviceId ?? null)) {
       reply(res, 400, 'Invalid local enrollment response. Return to the installer and try again.')
       return
     }
     accepted = true
-    res.once('finish', () => settle?.({
-      version: 2, relay_url: relayUrl, invite, expires_at: expiresAt, enrollment_verifier: verifier
-    }))
+    const setup = { relay_url: relayUrl, invite, expires_at: expiresAt, enrollment_verifier: verifier }
+    res.once('finish', () => settle?.(migrationDevice === null
+      ? { version: 2, ...setup }
+      : { version: 3, ...setup, migration_device_id: migrationDevice }))
     reply(res, 200, 'Registration approval returned. Continue in the Ayin-Relay installer.')
   })
   // Bound abandoned connections as well as the time spent waiting for approval.
@@ -99,6 +104,7 @@ export async function receiveBrowserEnrollment(
     if (!address || typeof address === 'string') throw new Error('Local enrollment listener failed')
     host = `127.0.0.1:${address.port}`
     target.search = new URLSearchParams({ port: String(address.port), state, challenge }).toString()
+    if (migrationDeviceId) target.searchParams.set('migration_device_id', migrationDeviceId)
     const expired = new Promise<never>((_, reject) => {
       timeout = setTimeout(() => reject(new Error('Browser enrollment timed out')), timeoutMs)
     })

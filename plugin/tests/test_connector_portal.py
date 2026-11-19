@@ -319,9 +319,12 @@ class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
             self.invites.append(invite)
             grant: object = {"invite": invite, "expires_in": 3600}
             if request.can_read_body:
-                challenge = (await request.json())["enrollment_challenge"]
+                enrollment = await request.json()
+                challenge = enrollment["enrollment_challenge"]
                 self.challenges.append(challenge)
                 grant = {"invite": invite, "expires_in": 300, "enrollment_challenge": challenge}
+                if "migration_device_id" in enrollment:
+                    grant["migration_device_id"] = enrollment["migration_device_id"]
             return web.json_response(self.invite_document if self.invite_document is not None else grant)
 
         upstream = web.Application()
@@ -365,6 +368,34 @@ class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
                 self.assertIn("no-store", response.headers["Cache-Control"])
         self.assertEqual(self.invites, [])
         self.assertEqual(self.jwks_calls, 0)
+
+    async def test_browser_certificate_migration_is_explicit_and_device_bound(self) -> None:
+        path = "/relay/private/enroll"
+        device = "a0000000-0000-4000-8000-000000000001"
+        other = "b0000000-0000-4000-8000-000000000002"
+        headers = {"CF-Access-Jwt-Assertion": self.token(), "Origin": self.config.public_origin}
+        ordinary = {"port": "49172", "state": "a" * 32, "challenge": "f" * 64}
+        setup = {**ordinary, "migration_device_id": device}
+        self.assertEqual((await self.client.get(path, headers=headers, params=setup)).status, 403)
+        object.__setattr__(self.config, "system_trust_migration_device_id", device)
+        wrong = {**setup, "migration_device_id": other}
+        self.assertEqual((await self.client.get(path, headers=headers, params=wrong)).status, 403)
+
+        page = await self.client.get(path, headers=headers, params=setup)
+        self.assertEqual(page.status, 200)
+        markup = await page.text()
+        self.assertIn(device, markup)
+        self.assertIn(self.config.relay_url, markup)
+        csrf = re.search(r'name="csrf" value="([^"]+)"', markup)[1]
+        denied = await self.client.post(path, headers=headers, data={**ordinary, "csrf": csrf})
+        self.assertEqual(denied.status, 403)
+        self.assertEqual(self.invites, [])
+        approved = await self.client.post(
+            path, headers=headers, data={**setup, "csrf": csrf}, allow_redirects=False,
+        )
+        self.assertEqual(approved.status, 303)
+        self.assertEqual(parse_qs(urlsplit(approved.headers["Location"]).query)["migration_device_id"], [device])
+        self.assertEqual(self.challenges, [setup["challenge"]])
 
     async def test_browser_approval_binds_identity_port_state_and_challenge(self) -> None:
         path = "/relay/private/enroll"

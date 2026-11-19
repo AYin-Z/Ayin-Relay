@@ -116,6 +116,24 @@ The protected download page offers `GET /relay/private/windows.exe` once verific
 
 Stage the portal with the intended signed EXE and confirm its downloaded SHA-256, browser approval and Windows startup before switching production. Removing the `installer_exe` setting and restarting restores ZIP-only downloads.
 
+## Migrate one pinned Windows connector
+
+Use this flow when a public Relay endpoint rotates its certificate key and an
+existing permanent Windows connector still pins the previous key. In the
+authenticated portal configuration for that exact WSS URL, set
+`system_trust_migration_device_id` to the selected installation UUID and reload
+the portal. Only one device can be selected at a time. Omit the field to
+disable migration. The normal enrollment and ZIP download flows are unchanged.
+
+Open the signed installer with `/MIGRATECERT` on the selected device. Compare
+the installer and browser confirmation identifiers, then confirm the displayed
+device and Relay URL. The short-lived approval is bound to the installation
+and consumed only by its existing permanent desktop credential. The node
+verifies the WSS certificate chain and hostname before sending credentials.
+After the Relay acknowledges the approval, the connector updates that exact
+local URL record and retains the device identity, grant, token and tool policy.
+Remove the temporary portal setting after verifying each device.
+
 ## Verification and recovery
 
 The focused tests cover signature/issuer/audience/expiry validation, anonymous

@@ -1102,6 +1102,11 @@ def _require_local_operator(request: web.Request, port: int) -> None:
     }:
         raise web.HTTPForbidden(text="Local operator host required")
 
+def _can_migrate_connector_trust(session: Session) -> bool:
+    return (session.desktop_only and math.isinf(session.expires_at)
+            and set(session.grants) == {"desktop"} and math.isinf(session.grants["desktop"]))
+
+
 async def handle_connector_invite(request: web.Request) -> web.Response:
     """Mint a download invite, optionally bound to an operator-selected UUID.
 
@@ -1117,7 +1122,7 @@ async def handle_connector_invite(request: web.Request) -> web.Response:
             body = await request.json()
         except (ValueError, UnicodeError) as exc:
             raise web.HTTPBadRequest(text="Invalid operator invitation request") from exc
-        if not isinstance(body, dict) or set(body) - {"device_id", "enrollment_challenge"}:
+        if not isinstance(body, dict) or set(body) - {"device_id", "enrollment_challenge", "migration_device_id"}:
             raise web.HTTPBadRequest(text="Invalid operator invitation request")
     challenge = body.get("enrollment_challenge")
     if "enrollment_challenge" in body and (not is_enrollment_digest(challenge) or "device_id" in body):
@@ -1134,12 +1139,25 @@ async def handle_connector_invite(request: web.Request) -> web.Response:
             server.sessions.has_trusted_device(replacement_id)
         ):
             raise web.HTTPNotFound(text="Installation identity is not paired")
+    migration_id = body.get("migration_device_id")
+    if "migration_device_id" in body:
+        try:
+            if challenge is None or not isinstance(migration_id, str) or str(uuid.UUID(migration_id)) != migration_id:
+                raise ValueError("invalid device or challenge")
+        except ValueError as exc:
+            raise web.HTTPBadRequest(text="Certificate migration requires an exact installation UUID and browser challenge") from exc
+        if not any(s.device_id == migration_id and _can_migrate_connector_trust(s)
+                   for s in server.sessions.list_sessions()):
+            raise web.HTTPNotFound(text="Permanent desktop installation is not paired")
     code = server.pairing.generate_desktop_invite(
         operator_replace_device_id=replacement_id, enrollment_challenge=challenge,
+        connector_migration_device_id=migration_id,
     )
     grant = {"invite": code, "expires_in": DESKTOP_INVITE_TTL_SECONDS}
     if challenge is not None:
         grant.update(expires_in=BROWSER_ENROLLMENT_TTL_SECONDS, enrollment_challenge=challenge)
+        if migration_id is not None:
+            grant["migration_device_id"] = migration_id
     return web.json_response(grant, headers={"Cache-Control": "no-store"})
 
 
@@ -4867,9 +4885,24 @@ async def _authenticate(
     # Missing host metadata therefore resolves to SessionManager defaults.
     detected_transport = _detect_transport_hint(request)
 
-    # Try session token first (reconnection)
+    trust_migration = payload.get("connector_trust_migration") is True
+    session = server.sessions.get_session(session_token_attempt) if session_token_attempt else None
+    if trust_migration and (
+        session is None or session.device_id != device_id or not _can_migrate_connector_trust(session)
+        or server.pairing.consume_code(
+            pairing_code, enrollment_verifier=payload.get("enrollment_verifier"),
+            connector_migration_device_id=device_id,
+        ) is None
+    ):
+        if session is None:
+            server.rate_limiter.record_session_failure(remote_ip)
+        else:
+            server.rate_limiter.record_pairing_failure(remote_ip)
+        await _send_system(ws, "auth.fail", {"reason": "Device-bound browser approval is required"})
+        raise _AuthFailed("certificate migration not approved")
+
+    # Try session token first (reconnection or approved local trust migration)
     if session_token_attempt:
-        session = server.sessions.get_session(session_token_attempt)
         if session is not None:
             server.sessions.update_session_device_metadata(
                 session,
@@ -4902,9 +4935,10 @@ async def _authenticate(
                 await _route_credential_for_auth(session, server)
                 if via_secure_link else None
             )
-            await _send_system(
-                ws, "auth.ok", _build_auth_ok_payload(session, server, route_credential)
-            )
+            auth_ok = _build_auth_ok_payload(session, server, route_credential)
+            if trust_migration:
+                auth_ok["approved_connector_trust_migration"] = session.device_id
+            await _send_system(ws, "auth.ok", auth_ok)
             return session.token
 
     # If the short session token was lost, revoked during an update, or reset
