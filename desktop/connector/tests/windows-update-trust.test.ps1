@@ -18,7 +18,7 @@ function New-FixtureSigner([string]$Name) {
     $publicCertificate = Join-Path $root "$Name.cer"
     Export-Certificate -Cert $certificate -FilePath $publicCertificate | Out-Null
     Write-Host "Trusting disposable $Name certificate for this runner account."
-    & certutil.exe -f -user -addstore Root $publicCertificate
+    & certutil.exe -f -user -addstore Root $publicCertificate | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Cannot trust the disposable signing certificate.' }
     return $certificate
 }
