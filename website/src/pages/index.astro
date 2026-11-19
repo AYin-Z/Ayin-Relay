@@ -7,7 +7,6 @@ import '@fontsource/space-mono/400.css';
 import '../styles/global.css';
 import MorphingSphere from '../components/MorphingSphere.astro';
 import { localeInfo, locales, translations, type Locale } from '../i18n';
-import versionCatalog from '../../../gradle/libs.versions.toml?raw';
 
 type Props = { locale?: Locale };
 
@@ -28,9 +27,9 @@ const relayPluginUrl = `${docsUrl}guide/getting-started#relay-server-optional`;
 const remoteAccessUrl = `${canonicalDocsUrl}guide/remote-access`;
 const secureLinkUrl = remoteAccessUrl;
 const tailscaleUrl = `${remoteAccessUrl}#recommended-tailscale`;
-const currentVersion = versionCatalog.match(/^appVersionName\s*=\s*"([^"]+)"/m)?.[1] ?? '1.4.5';
-const currentReleaseUrl = `${githubUrl}/releases/tag/android-v${currentVersion}`;
-const sideloadApkUrl = `${githubUrl}/releases/download/android-v${currentVersion}/hermes-relay-${currentVersion}-sideload-release.apk`;
+const archivedAndroidVersion = '1.19.0';
+const currentReleaseUrl = `${githubUrl}/releases/tag/android-v${archivedAndroidVersion}`;
+const sideloadApkUrl = `${githubUrl}/releases/download/android-v${archivedAndroidVersion}/hermes-relay-${archivedAndroidVersion}-sideload-release.apk`;
 const windowsInstallCommand = 'irm https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.ps1 | iex';
 const posixInstallCommand = 'curl -fsSL https://raw.githubusercontent.com/Codename-11/hermes-relay/main/desktop/scripts/install.sh | sh';
 const cliPairingUrl = `${canonicalDocsUrl}desktop/pairing.html`;
@@ -47,7 +46,7 @@ const structuredData = {
   image: socialImageUrl,
   applicationCategory: 'UtilitiesApplication',
   operatingSystem: 'Android, Windows, macOS, Linux',
-  softwareVersion: currentVersion,
+  softwareVersion: archivedAndroidVersion,
   isAccessibleForFree: true,
   offers: {
     '@type': 'Offer',
@@ -123,8 +122,8 @@ const structuredData = {
           <img src="/brand/logo.svg" alt="" width="28" height="28" />
           <span>Hermes-Relay</span>
         </a>
-        <a class="version-badge" href={currentReleaseUrl} aria-label={`v${currentVersion}, ${copy.header.release}`}>
-          v{currentVersion}
+        <a class="version-badge" href={currentReleaseUrl} aria-label={`v${archivedAndroidVersion}, ${copy.header.release}`}>
+          v{archivedAndroidVersion}
         </a>
         <span class="header-tagline">{copy.header.tagline}</span>
       </div>
