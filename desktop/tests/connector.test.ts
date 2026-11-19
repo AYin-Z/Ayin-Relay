@@ -4,7 +4,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
-import { connectorCommand, isPermanentConnectorSession, validateConnectorSetup } from '../src/commands/connector.js'
+import { connectorCommand, validateConnectorSetup } from '../src/commands/connector.js'
+import { isPermanentConnectorSession } from '../src/remoteSessions.js'
 import { getHostAccessMode, setHostAccessMode } from '../src/lib/hostAccessPolicy.js'
 import { getSession, saveSession, setStorePath } from '../src/remoteSessions.js'
 import { RelayTransport, type AuthOutcome } from '../src/transport/RelayTransport.js'
@@ -29,6 +30,14 @@ test('connector setup accepts only credential-free WSS endpoints with a high ent
   for (const expires_at of [NaN, Infinity, 0, -1, '9999999999']) {
     assert.throws(() => validateConnectorSetup({ ...setup, expires_at }))
   }
+})
+
+test('browser enrollment requires its verifier and legacy setup rejects a supplied verifier', () => {
+  const enrollment_verifier = 'd'.repeat(64)
+  assert.deepEqual(validateConnectorSetup({ ...setup, version: 2, enrollment_verifier }),
+    { ...setup, version: 2, enrollment_verifier })
+  assert.throws(() => validateConnectorSetup({ ...setup, enrollment_verifier }))
+  assert.throws(() => validateConnectorSetup({ ...setup, version: 2, enrollment_verifier: 'z'.repeat(64) }))
 })
 
 test('connector only reuses permanent desktop-only authorization', () => {
@@ -90,6 +99,19 @@ test('connector first install persists full access without TUI or workspace atta
   assert.equal(record?.ttlExpiresAt, null)
   assert.equal(f.output().includes(setup.invite), false)
   assert.equal(f.output().includes('private-connector-token'), false)
+})
+
+test('connector passes browser proof only during fresh enrollment and never prints it', async t => {
+  const f = await fixture(t)
+  const enrollment_verifier = 'd'.repeat(64)
+  await writeFile(f.file, JSON.stringify({ ...setup, version: 2, enrollment_verifier }))
+  assert.equal(await f.run(), 0)
+  assert.equal(f.configurations[0]?.enrollmentVerifier, enrollment_verifier)
+  assert.equal(f.output().includes(enrollment_verifier), false)
+
+  assert.equal(await f.run(), 0)
+  assert.equal(f.configurations[1]?.sessionToken, permanentAuth.token)
+  assert.equal(f.configurations[1]?.enrollmentVerifier, undefined)
 })
 
 test('connector explicit upgrade replaces finite general session and applies current all-capability consent', async t => {

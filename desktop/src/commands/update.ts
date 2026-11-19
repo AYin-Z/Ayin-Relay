@@ -19,11 +19,16 @@ import { homedir, tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 
 import type { ParsedArgs } from '../cli.js'
+import { canonicalRelayUrl } from '../lib/hostAccessPolicy.js'
+import { resolveFirstRunUrl } from '../relayUrlPrompt.js'
+import { fetchRelayRelease, stageRelayRelease } from '../relayUpdate.js'
+import { getSession, isPermanentConnectorSession } from '../remoteSessions.js'
 import {
   assetNameForPlatform,
   checkForUpdate,
   compareVersions,
   downloadAndInstall,
+  verifyPendingWindowsNode,
   type DownloadOptions,
   type UpdateInfo
 } from '../updater.js'
@@ -170,10 +175,78 @@ function reportFromInfo(
   }
 }
 
+async function updateFromRelay(args: ParsedArgs, platform: NodeJS.Platform, arch: string): Promise<number> {
+  const json = args.flags.json === true
+  const output = (value: object, message: string) => process.stdout.write(
+    (json ? JSON.stringify(value) : message) + '\n'
+  )
+  try {
+    if (platform !== 'win32' || arch !== 'x64') throw new Error('Relay node updates require Windows x64')
+    const allowed = ['from-relay', 'remote', 'check', 'yes', 'json']
+    if (args.flags['from-relay'] !== true || args.positional.length ||
+        Object.keys(args.flags).some(flag => !allowed.includes(flag)) ||
+        args.flags.remote === true) {
+      throw new Error('Use --from-relay with --check, --yes, --json or --remote <url>')
+    }
+    const url = canonicalRelayUrl(
+      args.flags.remote ?? process.env.HERMES_RELAY_URL ?? await resolveFirstRunUrl({ nonInteractive: true })
+    )
+    const session = url ? await getSession(url) : null
+    if (!url || !isPermanentConnectorSession(session) || session.certPinSha256) {
+      throw new Error('A registered Windows connector on a certificate-validated Relay address is required')
+    }
+    const offer = await fetchRelayRelease(url, session.token)
+    if (!offer || compareVersions(offer.version, VERSION) <= 0) {
+      output({ current: VERSION, offer, staged: false }, 'No newer Windows update was offered to this node.')
+      return 0
+    }
+    if (args.flags.check === true) {
+      output({ current: VERSION, offer, staged: false }, `Available Windows node update: ${offer.version}`)
+      return 0
+    }
+    if (args.flags.yes !== true) {
+      if (json || !process.stdin.isTTY || !process.stdout.isTTY) {
+        throw new Error('Pass --yes to approve staging non-interactively')
+      }
+      if (!await promptYesNo(`Stage Windows node update ${offer.version}?`, false)) {
+        output({ current: VERSION, offer, staged: false }, 'Update declined.')
+        return 0
+      }
+    }
+    await stageRelayRelease(url, session.token, offer)
+    output({ current: VERSION, offer, staged: true, needs_restart: true },
+      `Verified Windows node update ${offer.version} is staged for the connector launcher.`)
+    return 0
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Relay update failed'
+    if (json) output({ current: VERSION, staged: false, error: message }, message)
+    else process.stderr.write(`update: ${message}\n`)
+    return 1
+  }
+}
+
+// Called by the installed launcher before it stops the daemon. The launcher
+// waits for this process to exit before attempting to replace the executable.
+async function verifyConnectorRollout(args: ParsedArgs): Promise<number> {
+  if (process.platform !== 'win32' || process.arch !== 'x64' ||
+      args.flags['verify-rollout'] !== true || args.flags.json !== true || args.positional.length ||
+      Object.keys(args.flags).length !== 2) return 1
+  try {
+    const executable = process.execPath
+    const candidate = join(`${executable}.rollout-trial`, 'candidate.exe')
+    const approval = await verifyPendingWindowsNode(executable, candidate, VERSION)
+    process.stdout.write(JSON.stringify(approval) + '\n')
+    return 0
+  } catch {
+    return 1
+  }
+}
+
 export async function updateCommand(
   args: ParsedArgs,
   options: UpdateCommandOptions = {}
 ): Promise<number> {
+  if (args.flags['verify-rollout'] !== undefined) return verifyConnectorRollout(args)
   const wantJson = !!args.flags.json
   const checkOnly = !!args.flags.check
   const autoYes = !!args.flags.yes
@@ -184,6 +257,7 @@ export async function updateCommand(
   const repo = typeof args.flags.repo === 'string' ? args.flags.repo : undefined
   const platform = options.platform ?? process.platform
   const arch = options.arch ?? process.arch
+  if (args.flags['from-relay'] !== undefined) return updateFromRelay(args, platform, arch)
   const bundle = options.bundle ?? detectWindowsBundle({ platform })
   const installer = installerRequested || (platform === 'win32' && bundle.installed)
   const target = installer ? 'cli_ui' : 'cli'
@@ -363,6 +437,7 @@ export async function updateCommand(
           ? dirname(process.execPath)
           : join(homedir(), '.hermes', 'bin')
       scheduleWindowsInstaller(result.installedPath, {
+        expectedSha256: result.sha256,
         // An existing bundle update already received CLI confirmation. Run
         // setup silently so its finish-page checkbox cannot start a tray that
         // was stopped before the update; the helper restores exact state.
@@ -377,7 +452,9 @@ export async function updateCommand(
     if (useTtyProgress) process.stdout.write('\n')
 
     if (!wantJson) {
-      process.stdout.write('-> verifying SHA256... ok\n')
+      process.stdout.write(platform === 'win32'
+        ? '-> SHA256 and Windows publisher verified\n'
+        : '-> verifying SHA256... ok\n')
       process.stdout.write(
         installer
           ? downloadOnly

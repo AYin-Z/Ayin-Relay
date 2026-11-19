@@ -78,6 +78,8 @@ const BOOLEAN_FLAGS = new Set([
   'no-voice',
   'no-open',
   'check',
+  'from-relay',
+  'verify-rollout',
   'installer',
   'download-only',
   'force',
@@ -189,6 +191,7 @@ Usage:
   hermes-relay grants              Review pending local computer-use grants
   hermes-relay hosts               List/select paired hosts and set local access policy
   hermes-relay update              Check for and install the latest desktop-v* release
+  hermes-relay update --from-relay  Verify and stage the Windows update offered to this node
   hermes-relay ui [open|status|install]  Open or install the optional Windows management UI
   hermes-relay voice               Show native Hermes voice config (STT/TTS/realtime providers)
   hermes-relay voice mode          Push-to-talk in a browser tab (proxied through this CLI)
@@ -278,12 +281,12 @@ Config files:
 `
 
 export async function main(argv = process.argv): Promise<number> {
-  // Windows cooperative self-update swap: if a previous `update` run staged
-  // a <target>.new.exe next to the running binary, rename it into place
-  // before we dispatch. No-op on POSIX and when running via node/tsx.
-  await finalizePendingUpdate()
-
   const args = parseArgs(argv)
+  // Apply staged Windows updates on normal invocations. Inspecting or staging
+  // an offer must not change the active executable.
+  const inspectingUpdate = args.command === 'update' &&
+    (args.flags.check || args.flags['from-relay'] !== undefined || args.flags['verify-rollout'] !== undefined)
+  if (!inspectingUpdate) await finalizePendingUpdate()
 
   if (args.flags.version) {
     process.stdout.write(`hermes-relay ${readVersion()}\n`)

@@ -1,5 +1,7 @@
 # Security
 
+> This guide includes retained legacy protocol behavior. See the [Ayin-Relay architecture](spec.md) for the Windows node product.
+
 ## Overview
 
 Hermes-Relay gives a remote AI agent full control of an Android device via AccessibilityService. This is powerful and inherently sensitive — treat it with the same caution as remote desktop access.

@@ -42,6 +42,7 @@ export interface DaemonStatus {
    * a reader can tell a live daemon from a crashed one whose file lingers. */
   updated_at: number
   server_version?: string | null
+  node_version?: string
   advertised_tools?: number
   voice_url?: string | null
   last_event?: string

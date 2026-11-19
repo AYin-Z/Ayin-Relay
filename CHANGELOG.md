@@ -12,6 +12,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - A Chinese headless installer confirms host permissions once and restores the background connector after login or process failure.
 - Desktop file tools can push and pull binary files through Relay using bounded chunks, SHA-256 verification, explicit device selection, and destination overwrite protection.
 
+### Changed
+
+- The README, architecture and release process now center on Windows nodes and AyinServer.
+- The server package provides independent Relay and node download commands.
+
+### Removed
+
+- Retired the Android application, its build and release lanes, and its declarative mobile add-on authoring tools.
+
 ### Fixed
 
 - Desktop daemons retry transient startup connection failures, preserve desktop tools when the optional chat channel fails, and record terminal status before exiting.
@@ -19,6 +28,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Permanent device authorization replaces a previous finite expiry in saved sessions.
 - Windows background commands preserve quoted arguments, and daemon locks validate process identity before deciding whether a restart is blocked.
 - Desktop-only credentials cannot access server voice, media, profiles, or management routes.
+- Desktop heartbeat and diagnostics report input allowed by the host policy without requiring a temporary control grant.
 
 ## [Android 1.19.0] - 2026-10-20
 

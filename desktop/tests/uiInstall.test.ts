@@ -26,7 +26,8 @@ test('compiled CLI resolves a colocated UI executable', () => {
 test('installer launch is delayed until the running CLI can exit', () => {
   const plan = windowsInstallerLaunchPlan('C:\\Temp\\hermes setup.exe', {
     silent: true,
-    installDir: 'C:\\Hermes custom'
+    installDir: 'C:\\Hermes custom',
+    expectedSha256: 'a'.repeat(64)
   })
   assert.equal(plan.program, 'powershell.exe')
   assert.equal(plan.options.env?.HERMES_RELAY_SETUP_PATH, 'C:\\Temp\\hermes setup.exe')
@@ -36,6 +37,8 @@ test('installer launch is delayed until the running CLI can exit', () => {
   assert.equal(plan.options.env?.HERMES_RELAY_SETUP_CALLER_PID, String(process.pid))
   assert.match(plan.args.join(' '), /Wait-Process -Id \$callerPid/)
   assert.match(plan.args.join(' '), /Start-Sleep/)
+  assert.equal(plan.options.env?.HERMES_RELAY_SETUP_EXPECTED_SHA256, 'a'.repeat(64))
+  assert.ok(plan.args.join(' ').indexOf('Get-FileHash') < plan.args.join(' ').indexOf('Start-Process'))
   assert.match(plan.args.join(' '), /\/D=/)
   assert.match(plan.args.join(' '), /Remove-Item -LiteralPath \$installer/)
   assert.equal(plan.options.detached, true)

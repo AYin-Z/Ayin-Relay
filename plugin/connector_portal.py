@@ -26,13 +26,19 @@ import stat
 import tempfile
 import time
 from typing import Any
-from urllib.parse import urlsplit
+from urllib.parse import urlencode, urlsplit
 import zipfile
 
 from aiohttp import ClientError, ClientResponse, ClientSession, ClientTimeout, web
 import jwt
+from multidict import MultiMapping
 
-from .relay.auth import DESKTOP_INVITE_TTL_SECONDS
+from .installer_release import InstallerRelease, read_owner_json
+from .relay.auth import (
+    BROWSER_ENROLLMENT_TTL_SECONDS,
+    DESKTOP_INVITE_TTL_SECONDS,
+    is_enrollment_digest,
+)
 
 logger = logging.getLogger(__name__)
 _CHUNK_SIZE = 256 * 1024
@@ -68,6 +74,8 @@ class PortalConfig:
     max_concurrent_downloads: int = 2
     downloads_per_window: int = 3
     window_seconds: int = 600
+    browser_enrollment_enabled: bool = False
+    installer_exe: InstallerRelease | None = None
 
     def __post_init__(self) -> None:
         origin, relay = urlsplit(self.public_origin), urlsplit(self.relay_url)
@@ -94,25 +102,22 @@ class PortalConfig:
             raise ValueError("base_zip_path must be absolute")
         if not re.fullmatch(r"/[a-zA-Z0-9/_-]+", self.prefix) or self.prefix.endswith("/"):
             raise ValueError("prefix must be a path without a trailing slash")
+        if type(self.browser_enrollment_enabled) is not bool:
+            raise ValueError("browser_enrollment_enabled must be a boolean")
+        if self.installer_exe is not None and (
+            not isinstance(self.installer_exe, InstallerRelease) or not self.browser_enrollment_enabled
+        ):
+            raise ValueError("installer_exe requires browser enrollment")
         if (not 1 <= self.max_concurrent_downloads <= 8 or not 1 <= self.downloads_per_window <= 20
                 or not 10 <= self.window_seconds <= 3600):
             raise ValueError("download limits outside supported range")
 
     @classmethod
     def from_file(cls, path: Path) -> PortalConfig:
-        descriptor = os.open(path, os.O_RDONLY | os.O_NOFOLLOW)
-        with os.fdopen(descriptor, "r", encoding="utf-8") as stream:
-            info = os.fstat(stream.fileno())
-            if (not stat.S_ISREG(info.st_mode) or info.st_mode & 0o077
-                    or info.st_uid not in (os.getuid(), 0)):
-                raise ValueError("configuration must be owner-only and owned by service user or root")
-            raw = stream.read(_MAX_JSON_BYTES + 1)
-        if len(raw) > _MAX_JSON_BYTES:
-            raise ValueError("configuration too large")
-        data = json.loads(raw)
-        if not isinstance(data, dict):
-            raise ValueError("configuration must be an object")
+        data = read_owner_json(path, _MAX_JSON_BYTES)
         data["base_zip_path"] = Path(data["base_zip_path"])
+        if data.get("installer_exe") is not None:
+            data["installer_exe"] = InstallerRelease.from_mapping(data["installer_exe"])
         return cls(**data)
 
 
@@ -300,17 +305,46 @@ def create_app(config: PortalConfig) -> web.Application:
     session_key = web.AppKey("portal_session", ClientSession)
     verifier_key = web.AppKey("portal_verifier", AccessJWTVerifier)
     temp_key = web.AppKey("portal_temporary", Path)
+    installer_key = web.AppKey("portal_installer_exe", Path)
     csrf, limiter = CSRF(), DownloadLimiter(config)
+    exe_limiter = DownloadLimiter(config)
 
     async def resources(application: web.Application) -> AsyncIterator[None]:
         async with ClientSession(timeout=ClientTimeout(total=10), trust_env=False) as session:
             with tempfile.TemporaryDirectory(prefix="relay-connector-") as directory:
                 application[session_key], application[verifier_key] = session, AccessJWTVerifier(config, session)
                 application[temp_key] = Path(directory)
+                if config.installer_exe is not None:
+                    try:
+                        application[installer_key] = await asyncio.to_thread(
+                            config.installer_exe.snapshot, application[temp_key],
+                        )
+                    except (OSError, ValueError):
+                        logger.error("Signed Windows installer unavailable after verification")
                 yield
 
     async def identity(request: web.Request) -> str:
         return await request.app[verifier_key].verify(request.headers.get("CF-Access-Jwt-Assertion", ""))
+
+    async def mint_invitation(
+        session: ClientSession, challenge: str | None = None,
+    ) -> tuple[str, int]:
+        # Browser authentication headers never reach the local operator endpoint.
+        body = {"enrollment_challenge": challenge} if challenge is not None else None
+        started = int(time.time())
+        async with session.post(config.invite_url, allow_redirects=False, json=body) as reply:
+            if reply.status != 200:
+                raise ValueError("local Relay refused invitation")
+            grant = json.loads(await _read_limited(reply, 8192))
+        if not isinstance(grant, dict):
+            raise ValueError("invalid local Relay response")
+        invite, lifetime = grant.get("invite"), grant.get("expires_in")
+        max_lifetime = BROWSER_ENROLLMENT_TTL_SECONDS if challenge is not None else DESKTOP_INVITE_TTL_SECONDS
+        if (not isinstance(invite, str) or not _INVITE.fullmatch(invite)
+                or type(lifetime) is not int or not 0 < lifetime <= max_lifetime
+                or grant.get("enrollment_challenge") != challenge):
+            raise ValueError("invalid local Relay invitation")
+        return invite, started + lifetime
 
     async def landing(request: web.Request) -> web.Response:
         target = html.escape(f"{config.prefix}/private/", quote=True)
@@ -321,7 +355,13 @@ def create_app(config: PortalConfig) -> web.Application:
         subject = await identity(request)
         token = html.escape(csrf.issue(subject), quote=True)
         target = html.escape(f"{config.prefix}/private/download", quote=True)
+        windows = ""
+        if installer_key in request.app:
+            executable_url = html.escape(f"{config.prefix}/private/windows.exe", quote=True)
+            windows = f'''<h2>签名 EXE</h2><p>下载并打开安装程序，按提示在浏览器中确认这台电脑。</p>
+<a href="{executable_url}">下载 Windows EXE</a><h2>备用 ZIP</h2>'''
         return _page("下载桌面连接器", f'''<h1>安装桌面连接器</h1><p>安装时一次确认，授权这台电脑的文件、命令执行、屏幕与输入、USB、麦克风和摄像头能力。安装后以独立的长期授权连接，直到你撤销。</p>
+{windows}
 <ol><li>点击下方按钮下载专属安装包。</li><li>解压全部文件，双击 <strong>Install.cmd</strong>，按提示确认安装。</li><li>以后登录自动后台运行，无需再次填写配对码。</li></ol>
 <p>安装包的首次连接邀请只能使用一次，并在领取后 1 小时失效。请及时安装；超时后重新下载。请勿转发安装包。</p>
 <form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}"><button type="submit">下载 Windows 安装包</button></form>
@@ -341,25 +381,12 @@ def create_app(config: PortalConfig) -> web.Application:
         path: Path | None = None
         response: web.StreamResponse | None = None
         try:
-            session = request.app[session_key]
-            # Never forward browser headers to the local operator endpoint.
-            started = int(time.time())
-            async with session.post(config.invite_url, allow_redirects=False) as reply:
-                if reply.status != 200:
-                    raise ValueError("local Relay refused invitation")
-                raw = await _read_limited(reply, 8192)
-                grant = json.loads(raw)
-            if not isinstance(grant, dict):
-                raise ValueError("invalid local Relay response")
-            invite, lifetime = grant.get("invite"), grant.get("expires_in")
-            if (not isinstance(invite, str) or not _INVITE.fullmatch(invite)
-                    or type(lifetime) is not int or not 0 < lifetime <= DESKTOP_INVITE_TTL_SECONDS):
-                raise ValueError("invalid local Relay invitation")
+            invite, expires_at = await mint_invitation(request.app[session_key])
             descriptor, filename = tempfile.mkstemp(suffix=".zip", dir=request.app[temp_key])
             os.close(descriptor)
             path = Path(filename)
             await build_download_archive(config.base_zip_path, path, relay_url=config.relay_url,
-                                         invite=invite, expires_at=started + lifetime)
+                                         invite=invite, expires_at=expires_at)
             response = web.StreamResponse(headers={**_SECURITY_HEADERS,
                 "Content-Type": "application/zip",
                 "Content-Disposition": 'attachment; filename="Ayin-Relay-Connector-Windows.zip"',
@@ -383,12 +410,87 @@ def create_app(config: PortalConfig) -> web.Application:
             finally:
                 limiter.active -= 1
 
+    async def download_exe(request: web.Request) -> web.StreamResponse:
+        subject = await identity(request)
+        path = request.app.get(installer_key)
+        if path is None:
+            raise web.HTTPServiceUnavailable(text="暂时无法验证 Windows 安装程序。")
+        exe_limiter.acquire(subject)
+        try:
+            with path.open("rb") as source:
+                response = web.StreamResponse(headers={**_SECURITY_HEADERS,
+                    "Content-Type": "application/octet-stream",
+                    "Content-Disposition": 'attachment; filename="Ayin-Relay-Setup-x64.exe"',
+                    "Content-Length": str(os.fstat(source.fileno()).st_size),
+                })
+                await response.prepare(request)
+                while chunk := source.read(_CHUNK_SIZE):
+                    await response.write(chunk)
+                await response.write_eof()
+                return response
+        finally:
+            exe_limiter.active -= 1
+
+    def enrollment_parameters(values: MultiMapping[str | web.FileField]) -> tuple[str, str, str]:
+        port, state, challenge = (values.get(name) for name in ("port", "state", "challenge"))
+        if (not isinstance(port, str) or not re.fullmatch(r"[1-9][0-9]{3,4}", port)
+                or not 1024 <= int(port) <= 65535
+                or not isinstance(state, str) or not re.fullmatch(r"[0-9a-f]{32}", state)
+                or not is_enrollment_digest(challenge)):
+            raise web.HTTPBadRequest(text="无效的安装请求。请从 Windows 安装程序重新打开。")
+        if any(len(values.getall(name)) != 1 for name in ("port", "state", "challenge")):
+            raise web.HTTPBadRequest(text="安装参数重复。")
+        return port, state, challenge
+
+    def enrollment_scope(subject: str, port: str, state: str, challenge: str) -> str:
+        return f"{subject}\nenroll:{port}:{state}:{challenge}"
+
+    async def enrollment_page(request: web.Request) -> web.Response:
+        subject = await identity(request)
+        port, state, challenge = enrollment_parameters(request.query)
+        token = csrf.issue(enrollment_scope(subject, port, state, challenge))
+        target = f"{config.prefix}/private/enroll"
+        return _page("注册 Windows 节点", f"""<h1>注册这台 Windows 电脑</h1>
+<p>请核对安装程序上显示的确认标识 <strong>{state[:8].upper()}</strong>。只有标识一致时才继续。</p>
+<p>确认后会把一次性注册请求交回这台电脑的安装程序。</p>
+<form method="post" action="{target}"><input type="hidden" name="csrf" value="{token}">
+<input type="hidden" name="port" value="{port}"><input type="hidden" name="state" value="{state}">
+<input type="hidden" name="challenge" value="{challenge}"><button type="submit">确认注册</button></form>""")
+
+    async def approve_enrollment(request: web.Request) -> web.Response:
+        subject = await identity(request)
+        if (request.headers.get("Origin") != config.public_origin
+                or request.content_type != "application/x-www-form-urlencoded"):
+            raise web.HTTPForbidden(text="请从设备注册页确认。")
+        form = await request.post()
+        port, state, challenge = enrollment_parameters(form)
+        token = form.get("csrf")
+        if not isinstance(token, str) or not csrf.valid(token, enrollment_scope(subject, port, state, challenge)):
+            raise web.HTTPForbidden(text="设备注册请求已失效。")
+        limiter.acquire(subject)
+        try:
+            invite, expires_at = await mint_invitation(request.app[session_key], challenge)
+        except (ClientError, TimeoutError, ValueError, OSError):
+            logger.warning("Browser enrollment invitation could not be prepared")
+            raise web.HTTPServiceUnavailable(text="暂时无法注册，请稍后重试。") from None
+        finally:
+            limiter.active -= 1
+        # The redirect is constructed from a validated numeric port, never from
+        # a browser-supplied URL. The original verifier stays with the installer.
+        query = urlencode({"state": state, "invite": invite, "expires_at": expires_at, "relay_url": config.relay_url})
+        return web.HTTPSeeOther(location=f"http://127.0.0.1:{port}/ayin-relay/enrollment?{query}")
+
     app.cleanup_ctx.append(resources)
     app.router.add_get(config.prefix + "/", landing)
     app.router.add_get(config.prefix + "/private/", private_page, name="connector_private")
     app.router.add_get(config.prefix + "/private", private_page)
     app.router.add_get(config.prefix + "/private/download", private_page)
     app.router.add_post(config.prefix + "/private/download", download)
+    if config.installer_exe is not None:
+        app.router.add_get(config.prefix + "/private/windows.exe", download_exe, allow_head=False)
+    if config.browser_enrollment_enabled:
+        app.router.add_get(config.prefix + "/private/enroll", enrollment_page)
+        app.router.add_post(config.prefix + "/private/enroll", approve_enrollment)
     return app
 
 

@@ -1,7 +1,6 @@
 # Authenticated connector downloads
 
-The optional download portal supplies the Windows background connector. Existing
-CLI pairing and upstream Gateway authentication remain independent. See the
+The authenticated Ayin-Relay download portal supplies the Windows node connector. See the
 [installer guide](../desktop/connector/README.md) for user consent, local backups
 and Windows startup behavior.
 
@@ -29,9 +28,32 @@ input control, USB, microphone and camera capabilities, then saves the existing
 connector runs with `--no-voice`; permitting microphone and camera tools does
 not automatically start recording or a voice conversation.
 
+## Browser registration for a fixed installer
+
+The browser registration path keeps authenticated confirmation independent of the signed EXE. The installer holds a random verifier and sends its SHA-256 challenge when opening the portal. The approval is bound to the logged-in identity, the challenge and the callback parameters. The user compares the confirmation identifier on the installer and the browser.
+
+The portal returns the five-minute invitation to the installer's local listener. Relay accepts the invitation only with the original verifier. A bad proof leaves the invitation available to the original installer. Successful redemption consumes it and creates the usual revocable desktop-only authorization.
+
+Browser registration is disabled by default during migration. The EXE installer keeps the verifier local, listens on an ephemeral port on `127.0.0.1`, and accepts only the matching callback for the configured Relay URL. It hands the resulting temporary setup file to the existing per-user installer after the browser confirmation. The installer's local capability confirmation still applies.
+
+### Build a candidate EXE
+
+Build the Windows node executable with `npm run build:bin:win` from `desktop/`. With NSIS available, run this from the repository root using your intended authenticated portal and its Relay URL.
+
+```sh
+python3 scripts/package-desktop-connector.py \
+  --binary desktop/dist/bin/hermes-relay-win-x64.exe \
+  --output Ayin-Relay-Setup-x64.exe \
+  --source-sha <commit-sha> \
+  --browser-portal https://admin.example.test/relay/private/enroll \
+  --relay-url wss://relay.example.test
+```
+
+The packaging command produces an unsigned wrapper. For a runnable release, sign the node executable before packaging, then sign the resulting EXE with the same publisher certificate. The launcher checks both signatures in Windows before it runs the node. Verify the candidate with the chosen publisher, portal, account and browser. The EXE uses the current per-user installation flow. Administrator-assisted legacy migration and pre-sign-in operation still require separate validation.
+
 ## Operator setup
 
-Install `hermes-relay[connector-portal]` and prepare a credential-free template
+Install the `connector-portal` extra and run `ayin-relay-download --config <path>` with the portal service configuration. Prepare a credential-free template
 with `scripts/package-desktop-connector.py`. Store the template outside the
 public web root. Create a JSON configuration owned by the service account,
 mode `0600`, with absolute template path and these values:
@@ -68,6 +90,31 @@ For an existing installation migration, a local operator can submit
 identity. Redemption atomically replaces that device's prior credentials.
 Other installations are unaffected. A public download invitation cannot
 overwrite a paired identity.
+
+## Serve a signed EXE
+
+Build the two signed artifacts with the [Windows release command](../RELEASE.md#windows-signatures-and-updates), then verify the signed candidate on a clean Windows machine. Pin the SHA-256 of the finished, signed EXE and the SHA-256 of its publisher certificate in DER form. Place the EXE and trusted PEM bundles outside the web root. Keep the signing key with the signing provider.
+
+The [deployment staging command](../RELEASE.md#stage-the-signed-configuration) prepares these fields in a copy of the existing portal configuration while retaining the ZIP path:
+
+```json
+{
+  "browser_enrollment_enabled": true,
+  "installer_exe": {
+    "path": "/srv/apps/relay-download/Ayin-Relay-Setup-x64.exe",
+    "sha256": "<64 lowercase hex characters for the signed EXE>",
+    "signer_sha256": "<64 lowercase hex characters for the publisher certificate>",
+    "trust_bundle": "/srv/apps/relay-download/publisher-roots.pem",
+    "timestamp_trust_bundle": "/srv/apps/relay-download/timestamp-roots.pem"
+  }
+}
+```
+
+The timestamp trust bundle is optional. The service uses [osslsigncode](https://github.com/mtrojnar/osslsigncode/blob/master/osslsigncode.md) 2.13 or newer from its trusted executable path. During startup it checks the signed EXE hash, validates its Authenticode signature against the configured trust and checks the publisher pin. It serves the verified private copy until the service restarts. Production Windows acceptance independently checks trust and the displayed publisher.
+
+The protected download page offers `GET /relay/private/windows.exe` once verification succeeds. If verification fails, the EXE route returns 503 and the ZIP remains available. Downloading the fixed EXE does not issue an invitation. Browser approval issues the bound invitation when the installer is ready. EXE downloads and enrollment have separate limits. The ZIP remains a fallback.
+
+Stage the portal with the intended signed EXE and confirm its downloaded SHA-256, browser approval and Windows startup before switching production. Removing the `installer_exe` setting and restarting restores ZIP-only downloads.
 
 ## Verification and recovery
 

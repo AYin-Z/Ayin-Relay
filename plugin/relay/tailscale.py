@@ -160,17 +160,6 @@ def status() -> dict[str, Any] | None:
     }
 
 
-def _serve_ports() -> list[int]:
-    """Return ports currently published via ``tailscale serve``.
-
-    Best-effort — returns an empty list on any failure (binary absent,
-    non-zero exit, unparseable JSON, or an ``serve status`` schema we
-    don't recognize). Used only as an informational field on
-    :func:`status`; nothing should branch on it.
-    """
-    return _serve_state()["ports"]
-
-
 def _endpoint_port(value: Any) -> int | None:
     """Extract a valid port from a Serve key or proxy URL."""
     if not isinstance(value, str) or not value.strip():

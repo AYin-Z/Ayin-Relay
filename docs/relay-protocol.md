@@ -1,5 +1,7 @@
 # Hermes-Relay Protocol Specification
 
+> This guide includes retained legacy protocol behavior. See the [Ayin-Relay architecture](spec.md) for the Windows node product.
+
 **Status:** Draft v1.0 (2026-04-22) — extracted from existing server + Android client implementations.
 
 **Server:** `plugin/relay/server.py` (aiohttp, port 8767 default)

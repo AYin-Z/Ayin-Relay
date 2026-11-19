@@ -44,6 +44,8 @@ A legacy general-purpose session requires a fresh connector invitation; moving
 an existing enrolled device may also require the operator's explicit migration
 approval. Other servers' saved sessions remain in the same store.
 
+Run the installed `Uninstall.cmd` as the same Windows user to remove the connector. After confirmation, it verifies and removes the connector's startup task, stops its daemon, and removes matching connector files. It preserves pairing records, backups and files that have been replaced independently. Revoke the device in Ayin-Relay separately when decommissioning it.
+
 The installer checks the executable's SHA-256 against `manifest.json` before
 changing the installation. The private `setup.json` is consumed from a file,
 never a command-line token, and removed after successful installation. Treat
@@ -126,6 +128,7 @@ Install.cmd
 install.ps1
 Status.cmd
 Stop.cmd
+Uninstall.cmd
 hermes-relay.exe
 manifest.json
 ```
@@ -151,3 +154,11 @@ invitation is an example, not a usable credential:
   "expires_at": 2000000000
 }
 ```
+
+## Update from AyinServer
+
+The signed EXE setup includes managed updates in its local consent review. After setup, AyinServer can activate a signed update for this device. The background node checks for the assignment, verifies the publisher and stages the update for the launcher. The node sends back its update or rollback result.
+
+On a signed Windows x64 installation, run `hermes-relay update --from-relay --check` to see whether AyinServer selected this device for a newer version. Run `hermes-relay update --from-relay` to approve staging that release. Staging verifies the file and its publisher locally. The current connector launcher applies the update on its next scheduled run, checks that the new version connects to AyinServer and restores the previous version if the check fails. If your connector predates this launcher, run the updated signed installer first.
+
+If the installed executable has no valid publisher signature, migrate with the signed connector installer first.

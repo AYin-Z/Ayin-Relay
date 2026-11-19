@@ -2,7 +2,7 @@
 
 Ayin-Relay builds and updates use [this repository's release channel](https://github.com/AYin-Z/Ayin-Relay/releases).
 Until that channel publishes its first desktop release, use the [authenticated
-Windows connector](../../desktop/connector/README.md) or build from source.
+Windows connector](https://github.com/AYin-Z/Ayin-Relay/blob/dev/desktop/connector/README.md) or build from source.
 
 
 Prebuilt, self-contained CLI binaries ship for Windows x64, Linux x64/arm64, and macOS x64/arm64 — **no Node or Python required**. Windows also has an optional compact management UI.

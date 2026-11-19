@@ -30,6 +30,7 @@ import json
 import logging
 import math
 import os
+import re
 import secrets
 import tempfile
 import time
@@ -37,7 +38,7 @@ import uuid
 from dataclasses import dataclass, field
 from hashlib import sha256
 from pathlib import Path
-from typing import Any
+from typing import Any, TypeGuard
 
 from .config import PAIRING_ALPHABET, PAIRING_CODE_LENGTH
 
@@ -91,6 +92,12 @@ VOICE_GRANT_KEYS: tuple[str, ...] = (
 _PAIRING_CODE_TTL = 600.0
 # Download invitations allow time for a large installer on a slow link.
 DESKTOP_INVITE_TTL_SECONDS = 60 * 60
+BROWSER_ENROLLMENT_TTL_SECONDS = 5 * 60
+_ENROLLMENT_DIGEST = re.compile(r"[0-9a-f]{64}\Z")
+
+
+def is_enrollment_digest(value: object) -> TypeGuard[str]:
+    return isinstance(value, str) and _ENROLLMENT_DIGEST.fullmatch(value) is not None
 
 # Device refresh credentials survive normal relay restarts and updates. They
 # are only issued after a successful pair or an already-valid session reconnect,
@@ -401,6 +408,7 @@ class PairingMetadata:
     transport_hint: str | None = None
     desktop_only: bool = False
     operator_replace_device_id: str | None = None
+    enrollment_challenge: str | None = None
 
 
 @dataclass
@@ -444,22 +452,33 @@ class PairingManager:
         logger.info("Generated pairing code %s (expires in 10m)", code)
         return code
 
-    def generate_desktop_invite(self, operator_replace_device_id: str | None = None) -> str:
+    def generate_desktop_invite(
+        self, operator_replace_device_id: str | None = None, *,
+        enrollment_challenge: str | None = None,
+    ) -> str:
         """Mint a high-entropy, one-use installation invite without logging it.
 
         Used only by the local operator/download portal. Its one-hour life
         is independent of the resulting revocable, desktop-only device session.
+        Browser enrollment instead uses a five-minute invite bound to a verifier.
         An operator replacement is bound to the exact supplied installation
         identity; ordinary download invitations never replace an existing pair.
         """
+        lifetime = DESKTOP_INVITE_TTL_SECONDS
+        if enrollment_challenge is not None:
+            if not is_enrollment_digest(enrollment_challenge) or operator_replace_device_id is not None:
+                raise ValueError("invalid browser enrollment options")
+            lifetime = BROWSER_ENROLLMENT_TTL_SECONDS
+        self._cleanup()
         code = secrets.token_hex(32).upper()
         created_at = time.time()
         self._codes[code] = _PairingEntry(
             code=code, created_at=created_at,
-            expires_at=created_at + DESKTOP_INVITE_TTL_SECONDS,
+            expires_at=created_at + lifetime,
             metadata=PairingMetadata(
                 ttl_seconds=0, transport_hint="wss", desktop_only=True,
                 operator_replace_device_id=operator_replace_device_id,
+                enrollment_challenge=enrollment_challenge,
             ),
         )
         logger.info("Created a one-use desktop installation invite")
@@ -500,33 +519,30 @@ class PairingManager:
         )
         return True
 
-    def validate_code(self, code: str) -> bool:
-        """Check whether a pairing code is currently valid."""
+    def _find_code(self, normalized: str, verifier: object) -> _PairingEntry | None:
         self._cleanup()
-        normalized = code.upper().strip()
         entry = self._codes.get(normalized)
         if entry is None:
-            return False
-        if entry.is_expired:
-            del self._codes[normalized]
-            return False
-        return True
+            return None
+        challenge = entry.metadata.enrollment_challenge
+        if challenge is not None:
+            if not is_enrollment_digest(verifier):
+                return None
+            if not secrets.compare_digest(challenge, sha256(verifier.encode("ascii")).hexdigest()):
+                return None
+        return entry
 
-    def consume_code(self, code: str) -> PairingMetadata | None:
-        """Validate and consume a pairing code (one-time use).
+    def validate_code(self, code: str, *, enrollment_verifier: object = None) -> bool:
+        """Check whether a code can be accepted with the supplied proof."""
+        return self._find_code(code.upper().strip(), enrollment_verifier) is not None
 
-        Returns the :class:`PairingMetadata` attached to the code on
-        success (which may contain None fields if no metadata was
-        supplied at register time), or ``None`` if the code is invalid
-        or expired.
-        """
-        self._cleanup()
+    def consume_code(self, code: str, *, enrollment_verifier: object = None) -> PairingMetadata | None:
+        """Consume a code once, only after verifying any enrollment proof."""
         normalized = code.upper().strip()
-        entry = self._codes.pop(normalized, None)
+        entry = self._find_code(normalized, enrollment_verifier)
         if entry is None:
             return None
-        if entry.is_expired:
-            return None
+        del self._codes[normalized]
         if entry.metadata.desktop_only:
             logger.info("Desktop installation invite consumed")
         else:

@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises'
+import { mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
@@ -9,10 +9,17 @@ import { installerRunsSilently, updateCommand } from '../src/commands/update.js'
 import {
   assetNameForPlatform,
   checkForUpdate,
+  compareVersions,
   downloadAndInstall,
-  finalizePendingUpdateAt
+  finalizePendingUpdateAt,
+  verifyPendingWindowsNode
 } from '../src/updater.js'
 import { VERSION } from '../src/version.js'
+import {
+  requireSameWindowsPublisher,
+  requireWindowsNodeVersion,
+  requireWindowsX64Executable
+} from '../src/lib/windowsUpdateTrust.js'
 
 async function captureStdout(run: () => Promise<number>): Promise<{ code: number; output: string }> {
   const originalWrite = process.stdout.write
@@ -62,7 +69,17 @@ test('desktop installer selection downloads the requested asset to an exact veri
     assert.equal(info.asset_url, 'https://download.test/setup.exe')
 
     const result = await downloadAndInstall(info, { targetPath: target, cooperative: false })
-    assert.deepEqual(result, { installedPath: target, needsRestart: false })
+    assert.deepEqual(result, { installedPath: target, needsRestart: false, sha256: checksum })
+
+    const rejecting = join(scratch, 'rejected.exe')
+    await assert.rejects(downloadAndInstall(info, { targetPath: rejecting, cooperative: false,
+      verifyCandidate: async candidate => {
+        assert.deepEqual(await readFile(candidate), bytes)
+        throw new Error('Publisher rejected')
+      }
+    }), /Publisher rejected/)
+    await assert.rejects(stat(rejecting), { code: 'ENOENT' })
+    assert.deepEqual(await readdir(scratch), ['hermes-relay-setup.exe'])
     assert.deepEqual(await readFile(target), bytes)
   } finally {
     globalThis.fetch = originalFetch
@@ -132,16 +149,119 @@ test('Linux arm64 maps to the published Bun asset', () => {
   assert.equal(assetNameForPlatform('linux', 'arm64'), 'hermes-relay-linux-arm64')
 })
 
-test('cooperative updater removes a released Windows backup without another staged update', async () => {
+test('cooperative updater preserves the previous build when there is no pending update', async () => {
   const scratch = await mkdtemp(join(tmpdir(), 'hermes-updater-old-cleanup-'))
   const target = join(scratch, 'hermes-relay.exe')
   const oldPath = join(scratch, 'hermes-relay.old.exe')
   try {
     await writeFile(target, 'current')
     await writeFile(oldPath, 'previous')
-    await finalizePendingUpdateAt(target)
-    await assert.rejects(stat(oldPath), { code: 'ENOENT' })
+    await finalizePendingUpdateAt(target, async () => assert.fail('no candidate'))
+    assert.equal(await readFile(oldPath, 'utf8'), 'previous')
     assert.equal(await readFile(target, 'utf8'), 'current')
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+})
+
+test('Windows update publisher requires two matching SHA-256 fingerprints', () => {
+  const pin = 'a'.repeat(64)
+  assert.doesNotThrow(() => requireSameWindowsPublisher(`${pin}\r\n${pin}\r\n`))
+  for (const output of ['', pin, `${pin}\n${'b'.repeat(64)}`, 'invalid\ninvalid']) {
+    assert.throws(() => requireSameWindowsPublisher(output), /publisher/)
+  }
+})
+
+test('Windows node verification matches the exact approved version and product', () => {
+  assert.equal(compareVersions('1.2.3-rc-hotfix.2', '1.2.3-rc-hotfix.1'), 1)
+  assert.equal(compareVersions('1.2.3-rc-hotfix.1', '1.2.3-rc-hotfix.2'), -1)
+  const fingerprint = 'c'.repeat(64)
+  const probe = (product: string, version: string) =>
+    `${fingerprint}\n${fingerprint}\n${JSON.stringify({ product, description: `${product} ${version}` })}`
+  const product = 'Ayin-Relay Windows Node'
+  assert.doesNotThrow(() => requireWindowsNodeVersion(probe(product, '1.2.3-rc.2'), '1.2.3-rc.2'))
+  for (const mismatch of [probe(product, '1.2.3'), probe(product, '1.2.3-rc.1'), probe('Other product', '1.2.3-rc.2')]) {
+    assert.throws(() => requireWindowsNodeVersion(mismatch, '1.2.3-rc.2'), /product and version/)
+  }
+})
+
+test('Windows node verification rejects other architectures and truncated executables', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ayin-relay-update-pe-'))
+  const candidate = join(scratch, 'candidate.exe')
+  const bytes = Buffer.alloc(74)
+  bytes.writeUInt16LE(0x5a4d, 0)
+  bytes.writeUInt32LE(68, 60)
+  bytes.writeUInt32LE(0x4550, 68)
+  try {
+    bytes.writeUInt16LE(0x8664, 72)
+    await writeFile(candidate, bytes)
+    await requireWindowsX64Executable(candidate)
+    for (const machine of [0x014c, 0xaa64]) {
+      bytes.writeUInt16LE(machine, 72)
+      await writeFile(candidate, bytes)
+      await assert.rejects(requireWindowsX64Executable(candidate), /x64/)
+    }
+    await writeFile(candidate, bytes.subarray(0, 64))
+    await assert.rejects(requireWindowsX64Executable(candidate))
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+})
+
+test('pending Windows node verifies the selected release again after restart', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'ayin-relay-update-receipt-'))
+  const current = join(scratch, 'hermes-relay.exe')
+  const candidate = join(scratch, 'hermes-relay.new.exe')
+  const record = `${candidate}.json`
+  const contents = 'approved fixture'
+  const sha256 = createHash('sha256').update(contents).digest('hex')
+  const verification: unknown[][] = []
+  const verify = async (...args: unknown[]) => { verification.push(args) }
+  try {
+    await writeFile(candidate, contents)
+    await assert.rejects(verifyPendingWindowsNode(current, candidate, '1.0.0', verify))
+    for (const version of ['0.9.0', '1.0.0', 'next', 'v1.2.0']) {
+      await writeFile(record, JSON.stringify({ version, sha256 }))
+      await assert.rejects(verifyPendingWindowsNode(current, candidate, '1.0.0', verify), /approved newer release/)
+    }
+    await writeFile(record, JSON.stringify({ version: '1.1.0', sha256 }))
+    await writeFile(candidate, 'different fixture')
+    await assert.rejects(verifyPendingWindowsNode(current, candidate, '1.0.0', verify), /bytes differ/)
+    assert.deepEqual(verification, [])
+    await writeFile(candidate, contents)
+    await verifyPendingWindowsNode(current, candidate, '1.0.0', verify)
+    assert.deepEqual(verification, [[current, candidate, '1.1.0']])
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+})
+
+test('cooperative swap re-verifies the stage and restores the original after a failed replacement', async () => {
+  const scratch = await mkdtemp(join(tmpdir(), 'hermes-updater-restore-'))
+  const target = join(scratch, 'hermes-relay.exe')
+  const staged = join(scratch, 'hermes-relay.new.exe')
+  const backup = join(scratch, 'hermes-relay.old.exe')
+  try {
+    await writeFile(target, 'current')
+    await writeFile(staged, 'candidate')
+    await finalizePendingUpdateAt(target, async candidate => {
+      assert.equal(candidate, staged)
+      throw new Error('Publisher mismatch')
+    })
+    assert.equal(await readFile(target, 'utf8'), 'current')
+    await assert.rejects(stat(backup), { code: 'ENOENT' })
+
+    await finalizePendingUpdateAt(target, async () => {}, async (from, to) => {
+      if (from === staged) throw new Error('simulated Windows sharing violation')
+      await rename(from, to)
+    })
+    assert.equal(await readFile(target, 'utf8'), 'current')
+    assert.equal(await readFile(staged, 'utf8'), 'candidate')
+
+    await finalizePendingUpdateAt(target, async () => {})
+    assert.equal(await readFile(target, 'utf8'), 'candidate')
+    assert.equal(await readFile(backup, 'utf8'), 'current')
+    await assert.rejects(stat(staged), { code: 'ENOENT' })
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }

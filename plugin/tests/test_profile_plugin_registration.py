@@ -7,7 +7,6 @@ from typing import Any
 import plugin
 from plugin.tools.android_tool import _SCHEMAS as ANDROID_SCHEMAS
 from plugin.tools.desktop_tool import _SCHEMAS as DESKTOP_SCHEMAS
-from plugin.tools.relay_plugin_tool import _SCHEMAS as RELAY_SCHEMAS
 
 
 class _OwnedContext:
@@ -65,12 +64,11 @@ def test_registration_catalog_is_complete_and_toolsets_are_tierable(monkeypatch)
 
     plugin.register(ctx)
 
-    expected = set(ANDROID_SCHEMAS) | set(DESKTOP_SCHEMAS) | set(RELAY_SCHEMAS)
+    expected = set(ANDROID_SCHEMAS) | set(DESKTOP_SCHEMAS) | {"android_calendar"}
     assert set(ctx.tools) == expected
     assert {item["toolset"] for item in ctx.tools.values()} == {
         "android",
         "desktop",
-        "relay",
     }
     for name, item in ctx.tools.items():
         assert item["schema"]["name"] == name

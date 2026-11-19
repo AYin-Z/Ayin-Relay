@@ -29,7 +29,7 @@ class ConnectorPackageTests(unittest.TestCase):
             output = root / "template.zip"
             manifest = packager.package_template(binary, output, SOURCE_SHA.upper(), "1.2.3-rc.1")
             with zipfile.ZipFile(output) as archive:
-                self.assertEqual(set(archive.namelist()), {"Install.cmd", "install.ps1", "Status.cmd", "Stop.cmd", "hermes-relay.exe", "manifest.json"})
+                self.assertEqual(set(archive.namelist()), {"Install.cmd", "install.ps1", "Status.cmd", "Stop.cmd", "Uninstall.cmd", "hermes-relay.exe", "manifest.json"})
                 self.assertEqual(archive.read("hermes-relay.exe"), payload)
                 self.assertEqual(json.loads(archive.read("manifest.json")), manifest)
                 self.assertEqual(manifest, {"sha256": hashlib.sha256(payload).hexdigest(), "source_sha": SOURCE_SHA, "version": "1.2.3-rc.1"})
@@ -41,6 +41,52 @@ class ConnectorPackageTests(unittest.TestCase):
                     self.assertNotIn(b"\n", data.replace(b"\r\n", b""))
                 self.assertEqual(archive.testzip(), None)
             self.assertEqual(list(root.glob(".template.zip.*.tmp")), [])
+
+    def test_exe_stages_only_the_fixed_payload_and_never_publishes_a_failed_build(self) -> None:
+        portal = "https://admin.example.test/relay/private/enroll"
+        relay = "wss://relay.example.test/ws"
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            binary, output = root / "node.exe", root / "setup.exe"
+            binary.write_bytes(b"MZ test payload")
+            (root / "setup.json").write_text('{"invite":"not-for-redistribution"}')
+
+            def compile_stub(args: list[str], *, check: bool) -> None:
+                self.assertTrue(check)
+                staging = Path(args[1].split("=", 1)[1])
+                self.assertEqual({entry.name for entry in staging.iterdir()},
+                                 {"launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd", "Uninstall.cmd",
+                                  "hermes-relay.exe", "manifest.json", "portal.json"})
+                self.assertEqual(json.loads((staging / "portal.json").read_bytes()),
+                                 {"portal": portal, "relay_url": relay})
+                self.assertEqual((staging / "hermes-relay.exe").read_bytes(), binary.read_bytes())
+                manifest = json.loads((staging / "manifest.json").read_bytes())
+                self.assertEqual(manifest["sha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
+                Path(args[2].split("=", 1)[1]).write_bytes(b"MZ produced executable")
+
+            args = (binary, output, SOURCE_SHA, "1.2.3", portal, relay, "makensis")
+            with patch.object(packager.subprocess, "run", side_effect=OSError("missing compiler")):
+                with self.assertRaises(OSError):
+                    packager.package_exe(*args)
+                self.assertFalse(output.exists())
+                self.assertEqual(list(root.glob(".relay-setup-*")), [])
+            with patch.object(packager.subprocess, "run", side_effect=compile_stub):
+                packager.package_exe(*args)
+                self.assertEqual(output.read_bytes(), b"MZ produced executable")
+                with self.assertRaises(FileExistsError):
+                    packager.package_exe(*args)
+            self.assertEqual(list(root.glob(".relay-setup-*")), [])
+
+    def test_exe_settings_require_trusted_endpoint_shapes(self) -> None:
+        portal = "https://admin.example.test/relay/private/enroll"
+        relay = "wss://relay.example.test"
+        for url in ("http://admin.example.test/relay/private/enroll", portal + "?proof=x",
+                    portal.replace("admin.", "u:p@admin."), portal.replace("/enroll", "/download")):
+            with self.subTest(portal=url), self.assertRaises(ValueError):
+                packager.browser_settings(url, relay)
+        for url in ("ws://relay.example.test", relay + "#fragment", "wss://relay.example.test:65536"):
+            with self.subTest(relay=url), self.assertRaises(ValueError):
+                packager.browser_settings(portal, url)
 
     def test_existing_output_and_symlink_are_never_replaced(self) -> None:
         with tempfile.TemporaryDirectory() as directory:

@@ -15,6 +15,7 @@ export interface WindowsInstallerLaunchOptions {
   restartTray?: boolean
   delayMs?: number
   callerPid?: number
+  expectedSha256?: string
 }
 
 /**
@@ -34,13 +35,15 @@ export function windowsInstallerLaunchPlan(
     trayPath = '',
     restartTray = true,
     delayMs = 1200,
-    callerPid = process.pid
+    callerPid = process.pid,
+    expectedSha256 = ''
   } = options
   const script = [
     '$callerPid = [int]$env:HERMES_RELAY_SETUP_CALLER_PID',
     'if ($callerPid -gt 0) { Wait-Process -Id $callerPid -ErrorAction SilentlyContinue }',
     `Start-Sleep -Milliseconds ${Math.max(0, Math.floor(delayMs))}`,
     '$installer = $env:HERMES_RELAY_SETUP_PATH',
+    "if ($env:HERMES_RELAY_SETUP_EXPECTED_SHA256 -and (Get-FileHash -LiteralPath $installer -Algorithm SHA256 -ErrorAction Stop).Hash -ine $env:HERMES_RELAY_SETUP_EXPECTED_SHA256) { exit 1 }",
     "$installerArgs = if ($env:HERMES_RELAY_SETUP_SILENT -eq '1') { @('/S') } else { @() }",
     "if ($env:HERMES_RELAY_SETUP_INSTALL_DIR) { $installerArgs += ('/D=' + $env:HERMES_RELAY_SETUP_INSTALL_DIR) }",
     '$process = Start-Process -FilePath $installer -ArgumentList $installerArgs -PassThru',
@@ -70,6 +73,7 @@ export function windowsInstallerLaunchPlan(
       env: {
         ...process.env,
         HERMES_RELAY_SETUP_PATH: installerPath,
+        HERMES_RELAY_SETUP_EXPECTED_SHA256: expectedSha256,
         HERMES_RELAY_SETUP_CALLER_PID: String(callerPid),
         HERMES_RELAY_SETUP_SILENT: silent ? '1' : '0',
         HERMES_RELAY_SETUP_RESTART_DAEMON: restartDaemon ? '1' : '0',
@@ -82,7 +86,10 @@ export function windowsInstallerLaunchPlan(
   }
 }
 
-export function scheduleWindowsInstaller(installerPath: string, options: WindowsInstallerLaunchOptions): void {
+export function scheduleWindowsInstaller(
+  installerPath: string, options: WindowsInstallerLaunchOptions & { expectedSha256: string }
+): void {
+  if (!/^[0-9a-f]{64}$/.test(options.expectedSha256)) throw new Error('Verified installer SHA-256 required')
   const plan = windowsInstallerLaunchPlan(installerPath, options)
   const child = spawn(plan.program, plan.args, plan.options)
   child.unref()

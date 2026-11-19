@@ -2713,7 +2713,9 @@ mod app {
 
         #[test]
         fn external_links_require_an_exact_official_destination() {
-            assert!(is_official_url("https://github.com/AYin-Z/Ayin-Relay/tree/main/user-docs/desktop"));
+            assert!(is_official_url(
+                "https://github.com/AYin-Z/Ayin-Relay/tree/main/user-docs/desktop"
+            ));
             assert!(is_official_url(
                 "https://github.com/AYin-Z/Ayin-Relay/releases"
             ));

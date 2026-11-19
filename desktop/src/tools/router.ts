@@ -40,6 +40,7 @@ import { readDesktopUseSettingsSync } from '../lib/desktopUseSettings.js'
 import {
   getComputerGrantSummary,
   getComputerUseRuntimeSummary,
+  hasComputerInputGrant,
   initializeComputerControlSession,
   revokeComputerControlSession
 } from './computerGrants.js'
@@ -132,6 +133,7 @@ export interface DesktopToolRouterOpts {
   handlers: Record<string, ToolHandler>
   /** Relay identity recorded with local audit events. */
   hostUrl?: string
+  managedUpdates?: boolean
   /** Optional override for the heartbeat `advertised_tools` list — default
    * is `Object.keys(handlers)`. Useful when some handlers are stubs that
    * should not be advertised. */
@@ -285,6 +287,7 @@ export class DesktopToolRouter {
   private readonly handlers: Record<string, ToolHandler>
   private readonly advertisedTools: string[]
   private readonly consentGranted: boolean
+  private readonly managedUpdates: boolean
   private readonly interactive: boolean
   private readonly hostUrl?: string
   private relay: RelayTransport | null = null
@@ -307,6 +310,7 @@ export class DesktopToolRouter {
     this.hostUrl = opts.hostUrl
     this.advertisedTools = opts.advertisedTools ?? Object.keys(opts.handlers)
     this.consentGranted = opts.consentGranted ?? false
+    this.managedUpdates = opts.managedUpdates === true
     // Explicit opts.interactive wins; otherwise detect from env/TTY. We
     // capture it once at construct time so a short shell session that
     // happens to get its stdin redirected mid-flight doesn't flip mode.
@@ -433,19 +437,22 @@ export class DesktopToolRouter {
         device_id: desktopDeviceId(),
         device_name: os.hostname()
       }
+      if (process.platform === 'win32' && process.arch === 'x64') {
+        payload.node_update_protocol = this.managedUpdates ? 2 : 1
+      }
       if (this.advertisedTools.some(name => name.startsWith('desktop_computer_'))) {
         const runtime = getComputerUseRuntimeSummary(this.controlAuthority)
         const grant = getComputerGrantSummary(this.controlAuthority)
-        const inputGrantActive =
-          grant.active === true && (grant.mode === 'assist' || grant.mode === 'control')
+        const inputReady = process.platform === 'win32' && runtime.consented === true &&
+          hasComputerInputGrant(this.controlAuthority)
         payload.computer_use = {
           stage: 'experimental',
           protocol_version: 2,
           enabled: true,
           capabilities: ['status', 'screenshot', 'grant_request', 'cancel', 'action'],
           input:
-            runtime.consented === true && inputGrantActive && process.platform === 'win32'
-              ? 'available_until_grant_expiry'
+            inputReady
+              ? grant.expires_at === null ? 'available_by_host_policy' : 'available_until_grant_expiry'
               : this.interactive
                 ? 'grant_approval_prompt_available'
                 : 'blocked_headless',

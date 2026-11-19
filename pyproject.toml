@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "hermes-relay"
 version = "1.13.1"
-description = "Hermes-Relay plugin — Android device control toolset, QR pairing CLI, and WSS relay server for hermes-agent"
+description = "Ayin-Relay server and Windows node enrollment portal for AyinServer"
 requires-python = ">=3.11"
 dependencies = [
     "requests>=2.28.0,<3",
@@ -15,6 +15,10 @@ dependencies = [
     "httpx>=0.25.0,<1",  # dashboard plugin proxy → relay loopback
     "websocket-client>=1.8.0,<2",  # realtime voice provider websockets
 ]
+
+[project.scripts]
+ayin-relay-server = "plugin.relay.server:main"
+ayin-relay-download = "plugin.connector_portal:main"
 
 [project.optional-dependencies]
 dev = ["pytest", "pytest-mock", "responses", "PyJWT[crypto]>=2.10.1,<3"]

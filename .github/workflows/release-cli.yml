@@ -127,9 +127,6 @@ jobs:
 
       # Keep the package.json scripts as the single source of truth for Bun
       # compile flags so release and local smoke builds cannot diverge.
-      - name: Build Windows x64
-        run: npm run build:bin:win
-
       - name: Build Linux x64
         run: npm run build:bin:linux
 
@@ -183,7 +180,6 @@ jobs:
         with:
           name: cli-binaries
           path: |
-            desktop/dist/bin/hermes-relay-win-x64.exe
             desktop/dist/bin/hermes-relay-linux-x64
             desktop/dist/bin/hermes-relay-linux-arm64
             desktop/dist/bin/hermes-relay-darwin-x64
@@ -191,16 +187,27 @@ jobs:
           retention-days: 7
 
   smoke-windows-cli-release-asset:
-    name: Smoke exact Windows CLI release asset
+    name: Build and smoke exact Windows node release asset
     runs-on: windows-latest
-    needs:
-      - validate-release
-      - build-cli-binaries
+    needs: validate-release
     steps:
-      - uses: actions/download-artifact@v8
+      - uses: actions/checkout@v7
         with:
-          name: cli-binaries
-          path: release-assets
+          ref: ${{ github.event_name == 'workflow_dispatch' && format('desktop-v{0}', inputs.version) || github.ref }}
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: 'desktop/.bun-version'
+
+      - name: Install Windows node build dependencies
+        run: npm --prefix desktop ci
+
+      - name: Compile Windows node with release metadata
+        run: npm --prefix desktop run build:bin:win
 
       - name: Repeated launch and process cleanup gate
         shell: pwsh
@@ -208,7 +215,13 @@ jobs:
           EXPECTED_DESKTOP_VERSION: ${{ needs.validate-release.outputs.version }}
         run: |
           $ErrorActionPreference = 'Stop'
-          $exe = (Resolve-Path 'release-assets/hermes-relay-win-x64.exe').Path
+          $exe = (Resolve-Path 'desktop/dist/bin/hermes-relay-win-x64.exe').Path
+          $product = [System.Diagnostics.FileVersionInfo]::GetVersionInfo($exe)
+          if ($product.ProductName -ne 'Ayin-Relay Windows Node' -or
+              $product.FileDescription -ne "Ayin-Relay Windows Node $env:EXPECTED_DESKTOP_VERSION") {
+            throw 'Windows node product or version metadata does not match the release'
+          }
+          if ((Get-Item -LiteralPath $exe).Length -gt 150MB) { throw 'Windows node exceeds 150 MB' }
           1..20 | ForEach-Object {
             $output = & $exe --version
             if ($LASTEXITCODE -ne 0) { throw "Windows CLI smoke failed with exit $LASTEXITCODE" }
@@ -223,6 +236,13 @@ jobs:
           if ($leftovers) {
             throw "Windows CLI smoke left $(@($leftovers).Count) process(es) behind"
           }
+
+      - name: Upload Windows node release asset
+        uses: actions/upload-artifact@v4
+        with:
+          name: cli-windows-node
+          path: desktop/dist/bin/hermes-relay-win-x64.exe
+          retention-days: 7
 
   smoke-macos-cli-release-asset:
     name: Smoke exact macOS CLI release asset
@@ -566,7 +586,7 @@ jobs:
           fail_on_unmatched_files: true
           body_path: cli_release_notes_rendered.md
           files: |
-            release-assets/cli-binaries/hermes-relay-win-x64.exe
+            release-assets/cli-windows-node/hermes-relay-win-x64.exe
             release-assets/cli-binaries/hermes-relay-linux-x64
             release-assets/cli-binaries/hermes-relay-linux-arm64
             release-assets/cli-binaries/hermes-relay-darwin-x64

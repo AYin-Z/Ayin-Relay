@@ -1,32 +1,5 @@
 version: 2
 updates:
-  # Gradle dependencies
-  - package-ecosystem: "gradle"
-    directory: "/"
-    target-branch: "dev"
-    schedule:
-      interval: "weekly"
-      day: "monday"
-    open-pull-requests-limit: 10
-    labels:
-      - "dependencies"
-    groups:
-      compose:
-        patterns:
-          - "androidx.compose*"
-          - "androidx.compose.*"
-      lifecycle:
-        patterns:
-          - "androidx.lifecycle*"
-      networking:
-        patterns:
-          - "com.squareup.okhttp3*"
-      testing:
-        patterns:
-          - "junit*"
-          - "androidx.compose.ui:ui-test*"
-          - "io.github.takahirom.roborazzi*"
-
   # GitHub Actions
   - package-ecosystem: "github-actions"
     directory: "/"

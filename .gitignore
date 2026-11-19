@@ -24,7 +24,6 @@ Thumbs.db
 local.properties
 /build/
 /app/build/
-/experiments/quest/**/build/
 /app/release/
 *.apk
 *.aab

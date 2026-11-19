@@ -83,7 +83,12 @@ jobs:
       - name: Test connector installation safeguards (Windows PowerShell 5.1)
         if: runner.os == 'Windows'
         shell: powershell
-        run: ./connector/tests/install-process-stop.test.ps1
+        run: |
+          ./connector/tests/install-process-stop.test.ps1
+          ./connector/tests/install-hidden-launch.test.ps1
+          ./connector/tests/install-rollout.test.ps1
+          ./connector/tests/release-evidence.test.ps1
+          ./connector/tests/uninstall.test.ps1
 
       - name: --version
         run: node bin/hermes-relay.js --version

@@ -10,7 +10,6 @@
 #   plugin/dashboard/package-lock.json::version
 #
 # Android releases are intentionally split; use
-# scripts/bump-android-version.sh for gradle/libs.versions.toml.
 
 set -euo pipefail
 

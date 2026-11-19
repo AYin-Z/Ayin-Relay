@@ -1,19 +1,10 @@
-name: Hermes-Relay Coordinated Release Approval
+name: Ayin-Relay Coordinated Release Approval
 
 on:
   workflow_dispatch:
     inputs:
-      android:
-        description: "Approve Hermes-Relay Android"
-        required: true
-        default: false
-        type: boolean
-      android_version:
-        description: "Android version when selected"
-        required: false
-        type: string
       plugin:
-        description: "Approve Hermes-Relay Plugin"
+        description: "Approve Ayin-Relay Plugin"
         required: true
         default: false
         type: boolean
@@ -22,7 +13,7 @@ on:
         required: false
         type: string
       desktop:
-        description: "Approve Hermes-Relay CLI+UI"
+        description: "Approve Ayin-Relay CLI+UI"
         required: true
         default: false
         type: boolean
@@ -46,20 +37,17 @@ jobs:
     steps:
       - name: Require versions for every selected surface
         env:
-          ANDROID: ${{ inputs.android }}
-          ANDROID_VERSION: ${{ inputs.android_version }}
           PLUGIN: ${{ inputs.plugin }}
           PLUGIN_VERSION: ${{ inputs.plugin_version }}
           DESKTOP: ${{ inputs.desktop }}
           DESKTOP_VERSION: ${{ inputs.desktop_version }}
         run: |
           set -euo pipefail
-          if [ "$ANDROID" != "true" ] && [ "$PLUGIN" != "true" ] && [ "$DESKTOP" != "true" ]; then
+          if [ "$PLUGIN" != "true" ] && [ "$DESKTOP" != "true" ]; then
             echo "::error::Select at least one release surface"
             exit 1
           fi
           for pair in \
-            "$ANDROID:$ANDROID_VERSION:Android" \
             "$PLUGIN:$PLUGIN_VERSION:Plugin" \
             "$DESKTOP:$DESKTOP_VERSION:CLI+UI"; do
             IFS=: read -r selected version label <<<"$pair"
@@ -68,25 +56,9 @@ jobs:
               exit 1
             fi
           done
-          if [ "$ANDROID" = "true" ] && [[ "$ANDROID_VERSION" == *-* ]]; then
-            echo "::error::Coordinated Android approval is stable-only; use a dev candidate tag for prereleases"
-            exit 1
-          fi
-
-  android:
-    name: Approve Hermes-Relay Android
-    needs: validate
-    if: inputs.android
-    runs-on: ubuntu-latest
-    steps:
-      - name: Dispatch Android approval
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.android_version }}
-        run: gh workflow run approve-release-android.yml --repo "$GITHUB_REPOSITORY" --ref main -f version="$VERSION"
 
   plugin:
-    name: Approve Hermes-Relay Plugin
+    name: Approve Ayin-Relay Plugin
     needs: validate
     if: inputs.plugin
     runs-on: ubuntu-latest
@@ -103,7 +75,7 @@ jobs:
             -f version="$VERSION"
 
   desktop:
-    name: Approve Hermes-Relay CLI+UI
+    name: Approve Ayin-Relay CLI+UI
     needs: validate
     if: inputs.desktop
     runs-on: ubuntu-latest

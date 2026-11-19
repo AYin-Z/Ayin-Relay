@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { EventEmitter } from 'node:events'
 
+import { presetCapabilityPolicies } from '../src/lib/hostAccessPolicy.js'
 import { desktopDeviceId } from '../src/deviceIdentity.js'
 import type { RelayTransport } from '../src/transport/RelayTransport.js'
 import { configureComputerUseRuntime, getComputerGrantSummary, requestComputerGrant } from '../src/tools/computerGrants.js'
@@ -49,6 +50,32 @@ function harness(handler: (ctx: ToolContext) => void) {
 function nextTurn(): Promise<void> {
   return new Promise(resolve => setImmediate(resolve))
 }
+
+test('headless Windows heartbeat reports persistent screen and input permission', () => {
+  const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+  try {
+    Object.defineProperty(process, 'platform', { ...platform, value: 'win32' })
+    const cases = [
+      { accessMode: 'full_access', capabilities: presetCapabilityPolicies('full_access'), input: 'available_by_host_policy' },
+      { accessMode: 'custom', capabilities: { ...presetCapabilityPolicies('ask'), screen_input: 'allow' }, input: 'available_by_host_policy' },
+      { accessMode: 'ask', capabilities: presetCapabilityPolicies('ask'), input: 'blocked_headless' }
+    ] as const
+    for (const { accessMode, capabilities, input } of cases) {
+      configureComputerUseRuntime({ computerUseConsented: true, accessMode, capabilities })
+      const { router, sent } = harness(() => {})
+      try {
+        const status = sent.find(item => item.type === 'desktop.status')
+        const computerUse = status?.payload.computer_use as { input?: string } | undefined
+        assert.equal(computerUse?.input, input, accessMode)
+      } finally {
+        router.detach()
+      }
+    }
+  } finally {
+    Object.defineProperty(process, 'platform', platform)
+    configureComputerUseRuntime({ computerUseConsented: false, accessMode: 'ask' })
+  }
+})
 
 test('router passes a strictly validated server control session to handlers', async () => {
   let received: ToolContext | undefined

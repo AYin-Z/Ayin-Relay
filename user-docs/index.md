@@ -2,19 +2,16 @@
 layout: home
 
 hero:
-  name: Documentation
-  text: Start with the surface you have.
-  tagline: Connect Android, pair the CLI, and add the encouraged Relay extension for the complete current feature set. Each route starts with the recommended QR or invite path.
+  name: Ayin-Relay
+  text: Windows nodes for AyinServer
+  tagline: Enroll a Windows node and manage its connection to the Ayin system.
   actions:
     - theme: brand
-      text: Android quick start
-      link: /guide/quick-start
+      text: Install a Windows node
+      link: https://github.com/AYin-Z/Ayin-Relay/blob/dev/desktop/connector/README.md
     - theme: alt
-      text: Install the CLI
-      link: /desktop/installation
-    - theme: alt
-      text: Product overview ↗
-      link: https://hermes-relay.dev/
+      text: Architecture
+      link: https://github.com/AYin-Z/Ayin-Relay/blob/dev/docs/spec.md
 ---
 
-<DocsHomeHub />
+The older Hermes and phone guides describe compatibility behavior and earlier releases.

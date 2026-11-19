@@ -1,0 +1,152 @@
+name: Build Windows connector preview
+
+on:
+  push:
+    tags:
+      - 'desktop-v*-alpha*'
+      - 'desktop-v*-beta*'
+      - 'desktop-v*-rc*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Tested desktop prerelease tag from dev
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-2025
+    timeout-minutes: 25
+    env:
+      PREVIEW_TAG: ${{ inputs.tag || github.ref_name }}
+      CONNECTOR_ENROLLMENT_URL: ${{ vars.CONNECTOR_ENROLLMENT_URL }}
+      CONNECTOR_RELAY_URL: ${{ vars.CONNECTOR_RELAY_URL }}
+    steps:
+      - name: Validate preview inputs
+        shell: pwsh
+        run: |
+          if ($env:PREVIEW_TAG -cnotmatch '^desktop-v[0-9]+\.[0-9]+\.[0-9]+-(alpha|beta|rc)(\.[0-9]+)?$') {
+            throw 'An immutable desktop prerelease tag is required.'
+          }
+          if (!$env:CONNECTOR_ENROLLMENT_URL -or !$env:CONNECTOR_RELAY_URL) {
+            throw 'Set the public enrollment and Relay URLs before building the preview.'
+          }
+
+      - uses: actions/checkout@v7
+        with:
+          ref: refs/tags/${{ env.PREVIEW_TAG }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Verify source belongs to dev
+        shell: pwsh
+        run: |
+          git merge-base --is-ancestor HEAD refs/remotes/origin/dev
+          if ($LASTEXITCODE -ne 0) { throw 'The selected tag is outside origin/dev.' }
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '22'
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version-file: desktop/.bun-version
+      - uses: actions/setup-python@v7
+        with:
+          python-version: '3.13'
+
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          npm --prefix desktop ci
+          if ($LASTEXITCODE -ne 0) { throw 'Desktop dependencies failed to install.' }
+          choco install nsis --yes --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'NSIS failed to install.' }
+
+      - name: Compile exact Windows node
+        shell: pwsh
+        run: |
+          $version = $env:PREVIEW_TAG.Substring('desktop-v'.Length)
+          npm --prefix desktop run check:version-sync -- --expect $version
+          if ($LASTEXITCODE -ne 0) { throw 'The tag and version metadata differ.' }
+          npm --prefix desktop run build:bin:win
+          if ($LASTEXITCODE -ne 0) { throw 'The native Windows build failed.' }
+
+      - name: Assemble unsigned connector
+        shell: pwsh
+        run: |
+          $out = New-Item -ItemType Directory -Path connector-preview
+          $source = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the checked out commit.' }
+          $makensis = @($env:ProgramFiles, ${env:ProgramFiles(x86)}) |
+            ForEach-Object { Join-Path $_ 'NSIS\makensis.exe' } |
+            Where-Object { Test-Path -LiteralPath $_ -PathType Leaf } |
+            Select-Object -First 1
+          if (!$makensis) { throw 'Cannot find makensis.exe after installing NSIS.' }
+          python scripts/package-desktop-connector.py `
+            --binary desktop/dist/bin/hermes-relay-win-x64.exe `
+            --output (Join-Path $out.FullName 'Ayin-Relay-Setup-x64.unsigned.exe') `
+            --source-sha $source --makensis $makensis `
+            --browser-portal $env:CONNECTOR_ENROLLMENT_URL --relay-url $env:CONNECTOR_RELAY_URL
+          if ($LASTEXITCODE -ne 0) { throw 'The unsigned connector build failed.' }
+
+      - name: Verify the exact installer and embedded node
+        shell: pwsh
+        run: |
+          $version = $env:PREVIEW_TAG.Substring('desktop-v'.Length)
+          $source = git rev-parse HEAD
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot resolve the checked out commit.' }
+          $installer = Get-Item 'connector-preview/Ayin-Relay-Setup-x64.unsigned.exe'
+          $extract = Join-Path $env:RUNNER_TEMP 'ayin-connector-preview'
+          & (Join-Path $env:ProgramFiles '7-Zip\7z.exe') x -y "-o$extract" $installer.FullName
+          if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect the installer payload.' }
+
+          $payload = Join-Path $extract '$PLUGINSDIR'
+          $expected = @('launch.ps1', 'install.ps1', 'Stop.cmd', 'Status.cmd', 'Uninstall.cmd', 'hermes-relay.exe', 'manifest.json', 'portal.json')
+          $files = @(Get-ChildItem -LiteralPath $payload -File -Force)
+          $total = @(Get-ChildItem -LiteralPath $extract -File -Force -Recurse).Count
+          if ($total -ne $expected.Count -or (Compare-Object $expected $files.Name -CaseSensitive)) {
+            throw 'The installer contains unexpected files.'
+          }
+          $settings = Get-Content -LiteralPath (Join-Path $payload 'portal.json') -Raw | ConvertFrom-Json
+          if (@($settings.PSObject.Properties).Count -ne 2 -or
+              $settings.portal -cne $env:CONNECTOR_ENROLLMENT_URL -or
+              $settings.relay_url -cne $env:CONNECTOR_RELAY_URL) {
+            throw 'The embedded enrollment settings differ from the requested configuration.'
+          }
+          $node = Get-Item -LiteralPath (Join-Path $payload 'hermes-relay.exe')
+          $manifest = Get-Content -LiteralPath (Join-Path $payload 'manifest.json') -Raw | ConvertFrom-Json
+          $nodeHash = (Get-FileHash -LiteralPath $node.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          $builtHash = (Get-FileHash -LiteralPath 'desktop/dist/bin/hermes-relay-win-x64.exe' -Algorithm SHA256).Hash.ToLowerInvariant()
+          if (@($manifest.PSObject.Properties).Count -ne 3 -or $manifest.source_sha -cne $source -or
+              $manifest.version -cne $version -or $manifest.sha256 -cne $nodeHash -or $nodeHash -cne $builtHash) {
+            throw 'The embedded manifest does not match the source, version, and node hash.'
+          }
+          if ($installer.VersionInfo.ProductName -cne 'Ayin-Relay Windows Connector' -or
+              $node.VersionInfo.ProductName -cne 'Ayin-Relay Windows Node' -or
+              $node.VersionInfo.FileDescription -cne "Ayin-Relay Windows Node $version") {
+            throw 'Windows product metadata does not match the connector preview.'
+          }
+          foreach ($file in @($installer, $node)) {
+            if ((Get-AuthenticodeSignature -LiteralPath $file.FullName).Status -ne 'NotSigned') {
+              throw 'Expected an unsigned preview.'
+            }
+          }
+          $reportedVersion = & $node.FullName --version
+          if ($LASTEXITCODE -ne 0 -or $reportedVersion -cne "hermes-relay $version") {
+            throw 'The embedded node could not report the expected version on Windows.'
+          }
+          [ordered]@{
+            source_sha = $source
+            tag = $env:PREVIEW_TAG
+            filename = $installer.Name
+            sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+          } | ConvertTo-Json | Set-Content -LiteralPath 'connector-preview/preview.json' -Encoding utf8
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-connector-preview
+          path: connector-preview/
+          if-no-files-found: error

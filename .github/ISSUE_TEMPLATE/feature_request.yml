@@ -13,8 +13,7 @@ body:
     attributes:
       label: Affected area
       options:
-        - Android app
-        - Standard Hermes chat or voice
+        - Windows node connector
         - Relay plugin or server
         - Desktop CLI or tray
         - Dashboard plugin

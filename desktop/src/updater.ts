@@ -21,11 +21,13 @@
 
 import { createHash } from 'node:crypto'
 import { createWriteStream } from 'node:fs'
-import { rename, stat, unlink } from 'node:fs/promises'
+import { mkdtemp, readFile, rename, rm, stat, unlink, writeFile } from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 
+import { acquireProcessLock } from './lib/processLock.js'
+import { verifyWindowsUpdate } from './lib/windowsUpdateTrust.js'
 import { VERSION } from './version.js'
 
 const DEFAULT_REPO = 'AYin-Z/Ayin-Relay'
@@ -49,11 +51,13 @@ export interface DownloadOptions {
   targetPath?: string
   onProgress?: (bytes: number, total: number) => void
   cooperative?: boolean
+  verifyCandidate?: (candidate: string) => Promise<void>
 }
 
 export interface DownloadResult {
   installedPath: string
   needsRestart: boolean
+  sha256: string
 }
 
 // ---------------------------------------------------------------------------
@@ -92,7 +96,9 @@ function parseVersion(raw: string): ParsedVersion | null {
   else if (v.startsWith('desktop-v')) v = v.slice('desktop-v'.length)
   else if (v.startsWith('v')) v = v.slice(1)
 
-  const [core, pre] = v.split('-', 2)
+  const separator = v.indexOf('-')
+  const core = separator === -1 ? v : v.slice(0, separator)
+  const pre = separator === -1 ? '' : v.slice(separator + 1)
   if (!core) return null
   const parts = core.split('.')
   if (parts.length !== 3) return null
@@ -146,8 +152,8 @@ export function compareVersions(aRaw: string, bRaw: string): number {
     const aNum = /^\d+$/.test(ai)
     const bNum = /^\d+$/.test(bi)
     if (aNum && bNum) {
-      const na = Number(ai)
-      const nb = Number(bi)
+      const na = BigInt(ai)
+      const nb = BigInt(bi)
       if (na !== nb) return na < nb ? -1 : 1
     } else if (aNum !== bNum) {
       return aNum ? -1 : 1             // numeric < alphanumeric
@@ -296,6 +302,16 @@ async function fetchText(url: string): Promise<string> {
   return await res.text()
 }
 
+export function isWindowsNodeVersion(version: string): boolean {
+  if (version.length > 128 ||
+      !/^(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})\.(?:0|[1-9][0-9]{0,4})(?:-[0-9A-Za-z]+(?:[.-][0-9A-Za-z]+)*)?$/.test(version)) {
+    return false
+  }
+  const parsed = parseVersion(version)
+  return parsed !== null && Math.max(parsed.major, parsed.minor, parsed.patch) <= 65535 &&
+    !parsed.prerelease.some(part => /^0[0-9]+$/.test(part))
+}
+
 async function sha256File(path: string): Promise<string> {
   const hash = createHash('sha256')
   const { createReadStream } = await import('node:fs')
@@ -320,17 +336,56 @@ function extractChecksum(sums: string, assetName: string): string | null {
 
 /** Windows can't rename over a running .exe — stage next to it. Other OSes
  *  can atomically overwrite (POSIX rename keeps the existing inode live). */
-function stagingPathFor(targetPath: string): { downloadTmp: string; finalStaged: string; cooperative: boolean } {
-  const dir = dirname(targetPath)
-  const downloadTmp = join(dir, '.hermes-relay.download')
+function stagingPathFor(targetPath: string): { finalStaged: string; cooperative: boolean } {
   if (process.platform === 'win32') {
     // Mirror the target's extension when present so the new file is also
     // runnable directly if the user wants to test it before the swap.
     const ext = targetPath.toLowerCase().endsWith('.exe') ? '.exe' : ''
     const base = ext ? targetPath.slice(0, -ext.length) : targetPath
-    return { downloadTmp, finalStaged: `${base}.new${ext}`, cooperative: true }
+    return { finalStaged: `${base}.new${ext}`, cooperative: true }
   }
-  return { downloadTmp, finalStaged: targetPath, cooperative: false }
+  return { finalStaged: targetPath, cooperative: false }
+}
+
+async function writePendingWindowsRelease(
+  staged: string, download: string, version: string, sha256: string
+): Promise<void> {
+  const releaseRecord = join(dirname(download), 'release.json')
+  await writeFile(releaseRecord, JSON.stringify({ version, sha256 }), { mode: 0o600 })
+  await rename(download, staged)
+  await rename(releaseRecord, `${staged}.json`)
+}
+
+export async function stageWindowsNodeRelease(
+  target: string,
+  version: string,
+  digest: string,
+  download: (path: string) => Promise<void>,
+  verify = verifyWindowsUpdate,
+  rolloutId?: string
+): Promise<DownloadResult> {
+  if (!target.toLowerCase().endsWith('.exe') || !isWindowsNodeVersion(version) ||
+      compareVersions(version, VERSION) <= 0 || !/^[0-9a-f]{64}$/.test(digest) ||
+      (rolloutId !== undefined && !/^[0-9a-f]{32}$/.test(rolloutId))) {
+    throw new Error('A newer Windows node release is required')
+  }
+  const directory = await mkdtemp(join(dirname(target), '.hermes-relay-download-'))
+  try {
+    const candidate = join(directory, 'candidate.exe')
+    await download(candidate)
+    if (await sha256File(candidate) !== digest) {
+      throw new Error('Windows node download differs from the approved SHA-256')
+    }
+    await verify(target, candidate, version)
+    // Publish both files together. A running supervisor can claim the
+    // complete directory without racing the download or the approval record.
+    await writeFile(`${candidate}.json`, JSON.stringify({ version, sha256: digest, rollout_id: rolloutId }), { mode: 0o600 })
+    const staged = `${target}.rollout-stage`
+    await rename(directory, staged)
+    return { installedPath: join(staged, 'candidate.exe'), needsRestart: true, sha256: digest }
+  } finally {
+    await rm(directory, { recursive: true, force: true }).catch(() => undefined)
+  }
 }
 
 export async function downloadAndInstall(
@@ -344,10 +399,8 @@ export async function downloadAndInstall(
   const paths = stagingPathFor(targetPath)
   const cooperative = opts.cooperative ?? paths.cooperative
   const finalStaged = cooperative ? paths.finalStaged : targetPath
-  const downloadTmp = paths.downloadTmp
-
-  // Best-effort cleanup of any stale temp file from a previous aborted run.
-  try { await unlink(downloadTmp) } catch { /* ok */ }
+  const downloadDir = await mkdtemp(join(dirname(targetPath), '.hermes-relay-download-'))
+  const downloadTmp = join(downloadDir, process.platform === 'win32' ? 'candidate.exe' : 'candidate')
 
   try {
     await downloadTo(info.asset_url, downloadTmp, opts.onProgress)
@@ -363,6 +416,17 @@ export async function downloadAndInstall(
       throw new Error(`checksum mismatch: expected ${expected}, got ${actual}`)
     }
 
+    const nodeVersion = process.platform === 'win32' && info.asset_name === assetNameForPlatform('win32', 'x64')
+      ? info.latest_version
+      : undefined
+    if (nodeVersion !== undefined && (!isWindowsNodeVersion(nodeVersion) || compareVersions(nodeVersion, VERSION) <= 0)) {
+      throw new Error('A newer Windows node release is required')
+    }
+    const verifyCandidate = opts.verifyCandidate ?? (process.platform === 'win32'
+      ? (candidate: string) => verifyWindowsUpdate(process.execPath, candidate, nodeVersion)
+      : undefined)
+    await verifyCandidate?.(downloadTmp)
+
     // On POSIX we can chmod +x here before the rename so the final file is
     // immediately runnable. Skip on Windows (NTFS ignores the bits).
     if (process.platform !== 'win32') {
@@ -371,11 +435,21 @@ export async function downloadAndInstall(
     }
 
     // Atomic rename → target (POSIX) or .new.exe (Windows).
-    await rename(downloadTmp, finalStaged)
-    return { installedPath: finalStaged, needsRestart: cooperative }
-  } catch (err) {
-    try { await unlink(downloadTmp) } catch { /* ok */ }
-    throw err
+    const lock = cooperative
+      ? await acquireProcessLock(`${targetPath}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
+      : undefined
+    try {
+      if (cooperative && nodeVersion !== undefined) {
+        await writePendingWindowsRelease(finalStaged, downloadTmp, nodeVersion, actual)
+      } else {
+        await rename(downloadTmp, finalStaged)
+      }
+    } finally {
+      await lock?.release()
+    }
+    return { installedPath: finalStaged, needsRestart: cooperative, sha256: actual }
+  } finally {
+    await rm(downloadDir, { recursive: true, force: true }).catch(() => undefined)
   }
 }
 
@@ -399,38 +473,69 @@ export async function finalizePendingUpdate(): Promise<void> {
     // binary, nothing to swap.
     return
   }
-  await finalizePendingUpdateAt(target)
+  if (await stat(`${target}.rollout-trial`).catch(() => null)) return
+  await finalizePendingUpdateAt(target, async candidate => { await verifyPendingWindowsNode(target, candidate, VERSION) })
 }
 
-/** Path-level implementation used by the Windows startup hook and tests. */
-export async function finalizePendingUpdateAt(target: string): Promise<void> {
+/** Reconfirm the exact approved release after restart without executing its binary. */
+export async function verifyPendingWindowsNode(
+  current: string, candidate: string, installedVersion: string, verify = verifyWindowsUpdate
+): Promise<{ version: string; sha256: string; rollout_id?: string }> {
+  const recordPath = `${candidate}.json`
+  if ((await stat(recordPath)).size > 1024) throw new Error('Invalid pending Windows release record')
+  const approved: unknown = JSON.parse(await readFile(recordPath, 'utf8'))
+  if (!approved || typeof approved !== 'object' ||
+      !('version' in approved) || typeof approved.version !== 'string' || !isWindowsNodeVersion(approved.version) ||
+      compareVersions(approved.version, installedVersion) <= 0 ||
+      !('sha256' in approved) || typeof approved.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(approved.sha256)) {
+    throw new Error('Pending Windows update must match an approved newer release')
+  }
+  if (await sha256File(candidate) !== approved.sha256) {
+    throw new Error('Pending Windows update bytes differ from the approved release')
+  }
+  await verify(current, candidate, approved.version)
+  if ('rollout_id' in approved) {
+    if (typeof approved.rollout_id !== 'string' || !/^[0-9a-f]{32}$/.test(approved.rollout_id)) {
+      throw new Error('Invalid Windows rollout assignment ID')
+    }
+    return { version: approved.version, sha256: approved.sha256, rollout_id: approved.rollout_id }
+  }
+  return { version: approved.version, sha256: approved.sha256 }
+}
+
+/** Check and claim a Windows update before moving the active program. */
+export async function finalizePendingUpdateAt(
+  target: string,
+  verifyCandidate: (candidate: string) => Promise<void>,
+  move: typeof rename = rename
+): Promise<void> {
   const base = target.slice(0, -'.exe'.length)
   const newPath = `${base}.new.exe`
   const oldPath = `${base}.old.exe`
 
-  // Reap a backup from the prior cooperative swap even when no new update is
-  // staged. The prior process can keep the renamed image locked until exit.
-  try { await unlink(oldPath) } catch { /* absent or still locked */ }
-
   try {
     await stat(newPath)
+    const lock = await acquireProcessLock(`${target}.update.lock`, { timeoutMs: 0, purpose: 'Windows update' })
+    try {
+      // Validate again at the point of replacement, including on a restart.
+      await verifyCandidate(newPath)
+      try {
+        await unlink(oldPath)
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error
+      }
+      await move(target, oldPath)
+      try {
+        await move(newPath, target)
+        await unlink(`${newPath}.json`).catch(() => undefined)
+      } catch {
+        await move(oldPath, target)
+      }
+    } finally {
+      await lock.release()
+    }
   } catch {
-    return // no pending update
-  }
-
-  try {
-    // Move running binary → .old.exe. This is allowed on Windows even for
-    // the actively-executing image (the OS keeps the handle; the file just
-    // gets a new name).
-    await rename(target, oldPath)
-    // Move staged → target.
-    await rename(newPath, target)
-    // Re-attempt old cleanup; usually stays until process exits, that's OK.
-    try { await unlink(oldPath) } catch { /* ok */ }
-  } catch {
-    // Swap failed — keep going with whatever binary is currently on disk.
-    // User will see the .new.exe on the next run and can try again, or clean
-    // it up manually. We deliberately don't surface an error here: finalize
-    // is a best-effort preflight, not a user-visible operation.
+    // Keep the stage for inspection or retry. If the filesystem blocks
+    // restoration too, the original remains at oldPath.
   }
 }
