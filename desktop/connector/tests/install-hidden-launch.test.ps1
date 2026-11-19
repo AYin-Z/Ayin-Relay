@@ -7,7 +7,7 @@ if (-not $InstallerSource) {
 $tokens=$null;$parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($InstallerSource,[ref]$tokens,[ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Installer parsing failed' }
-foreach ($name in @('Invoke-ConnectorHiddenCli','Get-ConnectorLauncherContent','Get-ConnectorDaemonState','Get-ConnectorProcessSnapshot')) {
+foreach ($name in @('Invoke-ConnectorHiddenCli','Get-ConnectorLauncherContent','Get-ConnectorDaemonState','Get-ConnectorProcessSnapshot','Assert-ConnectorTask')) {
     $node=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true)
     if (-not $node) { throw ('Missing installer function '+$name) }
     . ([ScriptBlock]::Create($node.Extent.Text))
@@ -15,7 +15,6 @@ foreach ($name in @('Invoke-ConnectorHiddenCli','Get-ConnectorLauncherContent','
 function Assert-Case([bool]$condition,[string]$message) { if (-not $condition) { throw $message } }
 Assert-Case ($InstallerSource.Contains('$info.UseShellExecute = $false') -and $InstallerSource.Contains('$info.CreateNoWindow = $true')) 'CLI must suppress its console at creation'
 Assert-Case ($InstallerSource.Contains("'relay-connector-hidden.vbs','connector-control.ps1'")) 'Launcher must participate in backup and rollback'
-Assert-Case ($InstallerSource.Contains('$expectedExecutable = $launcherExecutable')) 'Task management validation must require the GUI launcher'
 Assert-Case ($InstallerSource.Contains('$action = New-ScheduledTaskAction -Execute $launcherExecutable')) 'Task must launch without a console'
 $root=Join-Path ([IO.Path]::GetTempPath()) ('Relay '+[char]0x6D4B+[char]0x8BD5+' '+[Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $root | Out-Null
@@ -44,6 +43,29 @@ try {
     Assert-Case ((Get-ConnectorDaemonState $root $expectedExecutable) -eq 'unknown') 'Unreadable status location must not restart'
     $powershell=Join-Path $env:WINDIR 'System32\WindowsPowerShell\v1.0\powershell.exe'
     $wscript=Join-Path $env:WINDIR 'System32\wscript.exe'
+    $taskName = 'HermesRelay-Connector-0123456789ab'
+    $sid = 'S-1-5-21-123-456-789-1001'
+    $launcher = Join-Path $root 'hidden launcher.vbs'
+    $launcherAction = [pscustomobject]@{ Type = 0; Path = $wscript; Arguments = ('//B //Nologo "'+$launcher+'"') }
+    $actions = [pscustomobject]@{ Count = 1; Action = $launcherAction }
+    $actions | Add-Member -MemberType ScriptMethod -Name Item -Value {
+        param([int]$Index)
+        if ($Index -ne 1) { throw 'Unexpected task action index' }
+        $this.Action
+    }
+    $task = [pscustomobject]@{
+        Path = ('\'+$taskName)
+        Definition = [pscustomobject]@{
+            Principal = [pscustomobject]@{ RunLevel = 0; LogonType = 3; UserId = $sid }
+            Actions = $actions
+        }
+    }
+    Assert-ConnectorTask $task $taskName $sid $wscript $launcher
+    $launcherAction.Path = $powershell
+    $rejected = $false
+    try { Assert-ConnectorTask $task $taskName $sid $wscript $launcher }
+    catch { $rejected = $true }
+    Assert-Case $rejected 'Task management must reject a non-GUI launcher'
     $script=Join-Path $root 'child script.ps1'
     # Exceed both pipe buffers. A sequential stream reader would deadlock.
     $source="[Console]::OutputEncoding=New-Object Text.UTF8Encoding(`$false); [Console]::Error.Write(('e'*131072)); [Console]::Out.Write(('o'*131072)); exit 7"
@@ -54,7 +76,6 @@ try {
     $marker=Join-Path $root 'done.txt'
     $source="Start-Sleep -Milliseconds 600; [IO.File]::WriteAllText('"+$marker.Replace("'","''")+"','done'); exit 7"
     [IO.File]::WriteAllText($script,$source,(New-Object Text.UTF8Encoding($true)))
-    $launcher=Join-Path $root 'hidden launcher.vbs'
     [IO.File]::WriteAllText($launcher,(Get-ConnectorLauncherContent $powershell $script),[Text.Encoding]::Unicode)
     $watch=[Diagnostics.Stopwatch]::StartNew()
     $result=Invoke-ConnectorHiddenCli $wscript ('//B //Nologo "'+$launcher+'"') 15000
