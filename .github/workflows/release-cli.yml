@@ -15,6 +15,7 @@ permissions:
 
 jobs:
   validate-release:
+    if: ${{ (github.event_name == 'workflow_dispatch' && format('desktop-v{0}', inputs.version) || github.ref_name) != vars.CONNECTOR_PREVIEW_TAG }}
     name: Validate tag, branch, and version metadata
     runs-on: ubuntu-latest
     defaults:

@@ -27,12 +27,13 @@ To repeat the check manually, install the candidate with `[connector-portal]` in
 
 ### Public unsigned preview
 
-An approved desktop prerelease tag from `dev` triggers **Build Windows
-connector preview**. Set the repository variables `CONNECTOR_ENROLLMENT_URL`
-and `CONNECTOR_RELAY_URL` to the public HTTPS enrollment endpoint and public
-WSS endpoint before tagging. The workflow verifies the embedded files and
-node version on a GitHub-hosted Windows runner, then uploads the EXE and its
-source and SHA-256 record as a workflow artifact.
+Set `CONNECTOR_PREVIEW_TAG` to the approved desktop prerelease tag from
+`dev` before creating that tag. The preview tag runs **Build Windows connector
+preview** and skips the CLI and tray publication workflow. Configure
+`CONNECTOR_ENROLLMENT_URL` and `CONNECTOR_RELAY_URL` with the public HTTPS
+enrollment endpoint and public WSS endpoint. The workflow verifies the embedded
+files and node version on a GitHub-hosted Windows runner, then uploads the
+EXE and its source and SHA-256 record as a workflow artifact.
 
 Use the verified EXE as the public prerelease asset for signing-provider
 inspection. Label it as unsigned. Installation requires matching valid
