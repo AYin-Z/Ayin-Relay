@@ -42,7 +42,7 @@ still requires browser authentication and local confirmation.
 
 ### Signed Windows release
 
-Prepare the private installer and its node binary on an x64 Windows signing host with Git, Python 3.11+, Node/npm, the Bun version in `desktop/.bun-version`, NSIS and Windows SDK SignTool. The signing provider must expose the approved code-signing certificate and key through the current Windows user's personal certificate store. Supply the provider's HTTPS RFC 3161 timestamp URL and pin the certificate's SHA-256 DER fingerprint. [Windows SDK SignTool documentation](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
+For local signing, prepare the private installer and its node binary on an x64 Windows signing host with Git, Python 3.11+, Node/npm, the Bun version in `desktop/.bun-version`, NSIS and Windows SDK SignTool. The signing provider must expose the approved code-signing certificate and key through the current Windows user's personal certificate store. Supply the provider's HTTPS RFC 3161 timestamp URL and pin the certificate's SHA-256 DER fingerprint. [Windows SDK SignTool documentation](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
 
 Run the following from the repository with deployment settings supplied in the indicated environment variables.
 
@@ -60,6 +60,18 @@ python scripts/build-signed-windows-connector.py `
 If SignTool or NSIS is outside PATH, pass its full path with `--signtool` or `--makensis`. Use a new output directory under an existing parent. The command builds from the selected Git commit in a temporary directory, signs the node before embedding it, then signs the outer installer. It checks both embedded signatures, timestamps, publisher pins and product metadata before making the output available.
 
 The output contains the signed node `hermes-relay-win-x64.exe`, the signed private installer `Ayin-Relay-Setup-x64.exe` and `release.json` with the source commit, version, publisher fingerprint and SHA-256 of each finished file. Configure the portal with the installer entry and the update offer with the node entry. Keep this installer within its intended authenticated download portal. See [connector downloads](docs/connector-downloads.md#serve-a-signed-exe).
+
+When a hosted signing provider returns signed files, sign the node first, embed that exact signed node with the selected version and source commit, then sign the resulting installer. On a Windows host with SignTool, place the two signed files in one directory under the filenames above. Use the import command below.
+
+```powershell
+python scripts/build-signed-windows-connector.py `
+  --source-sha $env:RELEASE_COMMIT_SHA `
+  --output $env:RELEASE_OUTPUT_DIR `
+  --publisher-sha256 $env:CODE_SIGNING_CERTIFICATE_SHA256 `
+  --signed-input $env:SIGNING_PROVIDER_OUTPUT
+```
+
+Pin the certificate from the release approval. Import verifies the two finished signatures and generates the same release manifest as local signing. Run [staging preflight](#stage-the-signed-configuration) to verify that the signed installer contains the matching node and targets the intended deployment.
 
 Windows self-update checks the downloaded hash, validates both the installed program and the candidate with Windows Authenticode, and requires the same publisher certificate. A Windows x64 node update also matches the signed executable's product and exact version to the selected release. Cooperative swaps verify the saved hash and release version again and retain the previous program. Changing publisher certificates or migrating an unsigned Windows installation uses a separately verified signed installer. Central rollout and rollback after an unhealthy reconnect require a separate device lifecycle check.
 
