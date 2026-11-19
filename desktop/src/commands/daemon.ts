@@ -712,7 +712,7 @@ async function restartDaemonAsUser(args: ParsedArgs): Promise<number> {
     process.platform === 'win32' &&
     existing &&
     existing.privilege === 'administrator' &&
-    daemonProcessState(existing) !== 'gone'
+    daemonProcessState({ pid: existing.pid, process_name: existing.process_name }, true) === 'alive'
   ) {
     // An unelevated caller cannot terminate an elevated daemon. Elevate only
     // the stop operation, wait for it to finish, then start the replacement
