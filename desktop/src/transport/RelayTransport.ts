@@ -75,6 +75,7 @@ interface WSCloseEvent { code: number; reason: string }
 interface WSErrorEvent { message?: string }
 
 interface WSLike {
+  readonly url?: string
   readyState: number
   send(data: string): void
   close(code?: number, reason?: string): void
@@ -84,7 +85,7 @@ interface WSLike {
   addEventListener(type: 'error', listener: (ev: WSErrorEvent) => void): void
 }
 
-type WSFactory = (url: string, headers?: Record<string, string>, pinnedCertificatePem?: string) => WSLike
+type WSFactory = (url: string, headers?: Record<string, string>, pinnedCertificatePem?: string, requireSystemTrust?: boolean) => WSLike
 
 export interface AuthMeta {
   /** Per-channel grant expiry (epoch seconds; `null` = never). Shape matches
@@ -95,6 +96,7 @@ export interface AuthMeta {
   /** Server's hint about the transport it's running on — `"wss"` / `"ws"` / `"unknown"`.
    * Used by the contextual connect banner so we can tell the user what they're on. */
   transportHint: string | null
+  approvedConnectorTrustMigration?: string
   routeCredential: { kind: 'broker_route'; brokerUrl: string; hostId: string; credentialId: string; token: string; expiresAt: number | null } | null
 }
 
@@ -107,12 +109,19 @@ export type AuthOutcome =
  * auth.ok seen; `reconnecting` = socket dropped, backoff timer armed. */
 type ReconnectState = 'idle' | 'connecting' | 'connected' | 'reconnecting'
 
-const defaultWSFactory: WSFactory = (url, headers, pinnedCertificatePem) => {
+const defaultWSFactory: WSFactory = (url, headers, pinnedCertificatePem, requireSystemTrust) => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const Ctor = (globalThis as any).WebSocket
 
   if (typeof Ctor !== 'function') {
     throw new Error('RelayTransport: global WebSocket not available. Need Node >=21.')
+  }
+
+  if (requireSystemTrust) {
+    if (typeof process.versions.bun === 'string') {
+      return new Ctor(url, { tls: { rejectUnauthorized: true } }) as WSLike
+    }
+    if (process.env.NODE_TLS_REJECT_UNAUTHORIZED === '0') throw new Error('System certificate verification is disabled')
   }
 
   if ((headers && Object.keys(headers).length) || pinnedCertificatePem) {
@@ -137,6 +146,8 @@ export interface RelayTransportConfig {
   pairingCode?: string
   /** Optional proof for browser-authorized Windows enrollment. */
   enrollmentVerifier?: string
+  /** Device-bound browser approval for migrating an existing connector. */
+  connectorTrustMigration?: boolean
   /** Previously-minted session token for reconnection. */
   sessionToken?: string
   /** Pin supplied by the operator-reviewed pairing invite before a session
@@ -393,10 +404,11 @@ export class RelayTransport extends EventEmitter implements Transport {
 
     // TOFU: probe the TLS peer cert BEFORE the WebSocket handshake so we can
     // refuse to open the WS on a pin mismatch. No-op for ws://.
+    let requireSystemTrust = false
     if (isSecureUrl(this.cfg.url)) {
       this.pinnedCertificatePem = undefined
       try {
-        await this.verifyOrCapturePin(generation)
+        requireSystemTrust = await this.verifyOrCapturePin(generation)
       } catch (e) {
         if (!isCurrent()) return
         const msg = e instanceof Error ? e.message : String(e)
@@ -421,7 +433,7 @@ export class RelayTransport extends EventEmitter implements Transport {
       ws = this.wsFactory(
         this.cfg.url,
         this.cfg.sessionHeader && token ? { 'X-Hermes-Relay-Session': token } : undefined,
-        this.pinnedCertificatePem
+        this.pinnedCertificatePem, requireSystemTrust
       )
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
@@ -432,14 +444,18 @@ export class RelayTransport extends EventEmitter implements Transport {
       return
     }
 
-    this.bindSocket(ws)
+    this.bindSocket(ws, requireSystemTrust)
   }
 
-  private bindSocket(ws: WSLike): void {
+  private bindSocket(ws: WSLike, requireSystemTrust = false): void {
     this.ws = ws
     const isCurrent = () => !this.tornDown && this.ws === ws
     ws.addEventListener('open', () => {
       if (!isCurrent()) return
+      if (requireSystemTrust && ws.url !== new URL(this.cfg.url).href) {
+        this.teardownSocket(-1, 'The verified WebSocket does not match the approved Relay URL')
+        return
+      }
       this.pushLog(`[ws] open → ${this.cfg.url}`)
       this.sendAuth()
     })
@@ -476,13 +492,20 @@ export class RelayTransport extends EventEmitter implements Transport {
    * live WS. A throwaway `tls.connect()` to the same host:port runs the
    * exact same TLS handshake (same SNI, same cert selection), costs
    * ~10–30ms once per connect, and surfaces `rawCert` directly. */
-  private async verifyOrCapturePin(generation: number): Promise<void> {
+  private async verifyOrCapturePin(generation: number): Promise<boolean> {
     const u = new URL(this.cfg.url)
     const host = u.hostname
     const port = parseInt(u.port || '443', 10)
     const key = pinKey(this.cfg.url)
     const stored = await getSession(this.cfg.url)
-    if (this.tornDown || generation !== this.connectionGeneration) return
+    if (this.tornDown || generation !== this.connectionGeneration) return false
+    if (this.cfg.connectorTrustMigration) {
+      if (!this.cfg.enrollmentVerifier || !this.cfg.pairingCode || !this.cfg.sessionToken || this.cfg.sessionHeader) {
+        throw new Error('Certificate migration requires a fresh browser invitation')
+      }
+      return true
+    }
+    if (stored?.systemCertificateTrust && !this.cfg.expectedCertPin && !this.cfg.sessionHeader) return true
     const expectedPin = stored?.certPinSha256 ?? this.cfg.expectedCertPin ?? null
 
     const verified = await new Promise<{ pin: string; der: Buffer }>((resolve, reject) => {
@@ -531,7 +554,7 @@ export class RelayTransport extends EventEmitter implements Transport {
       })
     })
 
-    if (this.tornDown || generation !== this.connectionGeneration) return
+    if (this.tornDown || generation !== this.connectionGeneration) return false
     const actualPin = verified.pin
     if (expectedPin) {
       if (!comparePins(expectedPin, actualPin)) {
@@ -547,7 +570,7 @@ export class RelayTransport extends EventEmitter implements Transport {
       this.pushLog(`[tofu] pin match for ${key}`)
       this.pinnedCertificatePem = certificateDerToPem(verified.der)
 
-      return
+      return false
     }
 
     // First-time capture. Don't overwrite a token we don't have — merge via
@@ -564,6 +587,7 @@ export class RelayTransport extends EventEmitter implements Transport {
       // off and saves the pin itself), so this branch is mostly defensive.
       this.pushLog(`[tofu] observed pin for ${key} (no stored session to merge into): ${actualPin}`)
     }
+    return false
   }
 
   private sendAuth() {
@@ -577,6 +601,11 @@ export class RelayTransport extends EventEmitter implements Transport {
       // Prefer the live token over the initial cfg — after a reconnect,
       // the stored token is what we must present.
       payload.session_token = this.sessionToken
+      if (this.cfg.connectorTrustMigration) {
+        payload.connector_trust_migration = true
+        payload.pairing_code = this.cfg.pairingCode
+        payload.enrollment_verifier = this.cfg.enrollmentVerifier
+      }
     } else if (this.cfg.pairingCode) {
       payload.pairing_code = this.cfg.pairingCode
       if (this.cfg.enrollmentVerifier) payload.enrollment_verifier = this.cfg.enrollmentVerifier
@@ -757,7 +786,9 @@ export class RelayTransport extends EventEmitter implements Transport {
           routeCredential = { kind: 'broker_route', brokerUrl: String(route.broker_url), hostId: String(route.host_id), credentialId: route.credential_id, token: route.token, expiresAt }
         }
       }
-      this.authMeta = { grants, ttlExpiresAt, transportHint, routeCredential }
+      const approvedConnectorTrustMigration = payload.approved_connector_trust_migration
+      this.authMeta = { grants, ttlExpiresAt, transportHint, routeCredential,
+        ...(typeof approvedConnectorTrustMigration === 'string' ? { approvedConnectorTrustMigration } : {}) }
 
       this.pushLog(
         `[auth] ok (server ${this.serverVersion ?? '?'}, transport=${transportHint ?? '?'}, ttl=${

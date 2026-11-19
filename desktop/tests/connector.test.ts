@@ -5,6 +5,7 @@ import { basename, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
 import { connectorCommand, validateConnectorSetup } from '../src/commands/connector.js'
+import { desktopDeviceId } from '../src/deviceIdentity.js'
 import { isPermanentConnectorSession } from '../src/remoteSessions.js'
 import { getHostAccessMode, setHostAccessMode } from '../src/lib/hostAccessPolicy.js'
 import { getSession, saveSession, setStorePath } from '../src/remoteSessions.js'
@@ -262,4 +263,35 @@ test('transport marks only explicit auth.fail as credential rejection', async ()
   assert.equal(rejected.wasCredentialRejected(), true)
   failed.kill()
   rejected.kill()
+})
+
+test('only a fresh acknowledgement for this pinned device changes its stored trust', async t => {
+  const f = await fixture(t)
+  const old = { ttlExpiresAt: null, grants: { desktop: null }, certPin: 'old-pin', toolsConsented: true }
+  await saveSession(setup.relay_url, permanentAuth.token, 'old', old)
+  await saveSession('wss://other.example.test', 'other-token', 'other', { ...old, certPin: 'other-pin' })
+  await setHostAccessMode(setup.relay_url, 'structured')
+  const migration = { ...setup, version: 3, enrollment_verifier: 'd'.repeat(64), migration_device_id: desktopDeviceId() }
+  await writeFile(f.file, JSON.stringify({ ...migration, expires_at: 1 }))
+  assert.equal(await f.run(), 1)
+  assert.equal(f.start.mock.callCount(), 0)
+  await writeFile(f.file, JSON.stringify(migration))
+  assert.equal(await f.run(), 1, 'a normal auth.ok cannot authorize changing trust')
+  assert.equal((await getSession(setup.relay_url))?.certPinSha256, 'old-pin')
+
+  t.mock.restoreAll()
+  t.mock.method(RelayTransport.prototype, 'start', () => {})
+  t.mock.method(RelayTransport.prototype, 'kill', () => {})
+  t.mock.method(process.stdout, 'write', () => true)
+  t.mock.method(RelayTransport.prototype, 'whenAuthResolved', async () => ({
+    ...permanentAuth,
+    meta: { ...permanentAuth.meta, approvedConnectorTrustMigration: migration.migration_device_id }
+  }))
+  assert.equal(await f.run(), 0)
+  const after = await getSession(setup.relay_url)
+  assert.equal(after?.certPinSha256, null)
+  assert.equal(after?.systemCertificateTrust, true)
+  assert.equal(after?.token, permanentAuth.token)
+  assert.equal(await getHostAccessMode(setup.relay_url), 'structured')
+  assert.equal((await getSession('wss://other.example.test'))?.certPinSha256, 'other-pin')
 })

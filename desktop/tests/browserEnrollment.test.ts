@@ -71,3 +71,23 @@ test('browser enrollment closes its listener after cancellation or timeout', asy
   }, 30), /timed out/)
   await assert.rejects(fetch(listener))
 })
+
+test('certificate migration rejects normal and wrong-device browser callbacks', async () => {
+  const device = 'a0000000-0000-4000-8000-000000000001'
+  const result = await receiveBrowserEnrollment(portal, relay, async ({ url }) => {
+    const browser = new URL(url)
+    assert.equal(browser.searchParams.get('migration_device_id'), device)
+    const callback = new URL(`http://127.0.0.1:${browser.searchParams.get('port')}/ayin-relay/enrollment`)
+    callback.search = new URLSearchParams({
+      state: browser.searchParams.get('state')!, invite: 'a'.repeat(64),
+      expires_at: String(Math.floor(Date.now() / 1000) + 240), relay_url: relay
+    }).toString()
+    assert.equal((await fetch(callback)).status, 400)
+    callback.searchParams.set('migration_device_id', 'b0000000-0000-4000-8000-000000000002')
+    assert.equal((await fetch(callback)).status, 400)
+    callback.searchParams.set('migration_device_id', device)
+    assert.equal((await fetch(callback)).status, 200)
+  }, undefined, device)
+  assert.equal(result.version, 3)
+  assert.equal(result.migration_device_id, device)
+})

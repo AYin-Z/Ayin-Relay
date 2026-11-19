@@ -14,9 +14,14 @@ try {
     $uri = [Uri]$remote
 } catch { throw '无法读取安装包的安全连接信息，请重新下载。' }
 $hasProof = $null -ne $setup.PSObject.Properties['enrollment_verifier']
-$validSetupVersion = ($setup.version -eq 1 -and -not $hasProof) -or
-    ($setup.version -eq 2 -and $hasProof -and $setup.enrollment_verifier -is [string] -and
-    $setup.enrollment_verifier -cmatch '\A[0-9a-f]{64}\z')
+$hasReplacement = $null -ne $setup.PSObject.Properties['migration_device_id']
+$validProof = $hasProof -and $setup.enrollment_verifier -is [string] -and
+    $setup.enrollment_verifier -cmatch '\A[0-9a-f]{64}\z'
+$validSetupVersion = ($setup.version -eq 1 -and -not $hasProof -and -not $hasReplacement) -or
+    ($setup.version -eq 2 -and $validProof -and -not $hasReplacement) -or
+    ($setup.version -eq 3 -and $validProof -and $hasReplacement -and
+        $setup.migration_device_id -is [string] -and
+        $setup.migration_device_id -cmatch '\A[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\z')
 if (-not $validSetupVersion -or $setup.invite -notmatch '^[A-Fa-f0-9]{64}$' -or
     $uri.Scheme -ne 'wss' -or -not $uri.Host -or $uri.UserInfo -or $uri.Query -or $uri.Fragment -or
     $remote -match '[\x00-\x20\x7f"\\]') { throw '安装包的安全连接信息无效。' }

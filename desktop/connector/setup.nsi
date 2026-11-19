@@ -1,4 +1,5 @@
 Unicode True
+!include "FileFunc.nsh"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 Name "Ayin-Relay Windows Connector"
@@ -30,8 +31,15 @@ Section
   File "hermes-relay.exe"
   File "manifest.json"
   File "portal.json"
+  ${GetParameters} $1
+  StrCmp $1 "/MIGRATECERT" 0 ordinary
+  StrCpy $1 "-MigrateCertificate"
+  Goto invoke
+ordinary:
+  StrCpy $1 ""
+invoke:
   ClearErrors
-  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\launch.ps1" -InstallerPath "$EXEPATH"' $0
+  ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\launch.ps1" -InstallerPath "$EXEPATH" $1' $0
   IfErrors failed
   StrCmp $0 "0" installed
 failed:

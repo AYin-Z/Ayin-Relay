@@ -189,6 +189,46 @@ class ConnectorWireTests(AioHTTPTestCase):
         self.assertEqual(accepted["payload"]["grants"], {"desktop": None})
         self.assertEqual((await authenticate(verifier))["type"], "auth.fail")
 
+    async def test_certificate_migration_needs_device_token_and_browser_proof(self) -> None:
+        target = str(uuid.uuid4())
+        other = str(uuid.uuid4())
+        sessions = self.app["server"].sessions
+        active = sessions.create_session("Target", target, desktop_only=True, ttl_seconds=0)
+        unrelated = sessions.create_session("Other", other, desktop_only=True, ttl_seconds=0)
+        verifier = "a" * 64
+        challenge = sha256(verifier.encode("ascii")).hexdigest()
+        local = {"Host": "127.0.0.1:8767"}
+        body = {"enrollment_challenge": challenge, "migration_device_id": target}
+        self.assertEqual((await self.client.post("/connector/invite", headers=local,
+                                                json={"migration_device_id": target})).status, 400)
+        response = await self.client.post("/connector/invite", headers=local, json=body)
+        self.assertEqual(response.status, 200)
+        grant = await response.json()
+        self.assertEqual(grant["migration_device_id"], target)
+
+        async def authenticate(**changes):
+            async with self.client.ws_connect("/ws") as ws:
+                await ws.send_json({"channel": "system", "type": "auth", "payload": {
+                    "device_id": target, "session_token": active.token,
+                    "pairing_code": grant["invite"], "enrollment_verifier": verifier,
+                    "connector_trust_migration": True, **changes,
+                }})
+                return await ws.receive_json(timeout=2)
+
+        for changes in ({"session_token": unrelated.token}, {"session_token": ""},
+                        {"enrollment_verifier": "b" * 64}, {"device_id": other}):
+            self.assertEqual((await authenticate(**changes))["type"], "auth.fail")
+        plain = await authenticate(connector_trust_migration=False)
+        self.assertEqual(plain["type"], "auth.ok")
+        self.assertNotIn("approved_connector_trust_migration", plain["payload"])
+        accepted = await authenticate()
+        self.assertEqual(accepted["type"], "auth.ok")
+        self.assertEqual(accepted["payload"]["approved_connector_trust_migration"], target)
+        self.assertEqual(accepted["payload"]["session_token"], active.token)
+        self.assertEqual((await authenticate())["type"], "auth.fail")
+        self.assertIsNotNone(sessions.get_session(active.token))
+        self.assertIsNotNone(sessions.get_session(unrelated.token))
+
     async def test_actual_desktop_session_cannot_open_other_channels_or_manage_sessions(self) -> None:
         ws, token = await self.authorize()
         session = self.app['server'].sessions.get_session(token)

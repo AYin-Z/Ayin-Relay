@@ -29,6 +29,7 @@ export interface RemoteSessionRecord {
   serverVersion: string | null
   pairedAt: number // epoch seconds
   certPinSha256: string | null
+  systemCertificateTrust?: boolean
   /** Per-channel grant expiry (epoch seconds; `null` = never expires). Captured
    * from `auth.ok.grants`. Used by `hermes-relay status` to tell the user which
    * channels the token can access. Shape mirrors what the server persists on
@@ -68,6 +69,7 @@ interface StoredRecord {
   server_version?: string | null
   paired_at: number
   cert_pin_sha256?: string | null
+  system_certificate_trust?: true
   /** Serialized as a plain object. `null` values mean never-expires; missing
    * means the channel isn't granted. See RemoteSessionRecord.grants. */
   grants?: Record<string, number | null> | null
@@ -107,6 +109,9 @@ const toRecord = (raw: StoredRecord, routeUrl?: string): RemoteSessionRecord => 
   certPinSha256: routeUrl
     ? raw.route_cert_pins?.[routeUrl] ?? raw.route_candidates?.find(candidate => candidate.relay.url === routeUrl)?.proxy?.pinSha256 ?? null
     : raw.cert_pin_sha256 ?? null,
+  systemCertificateTrust: !routeUrl && raw.system_certificate_trust === true && !raw.cert_pin_sha256
+    && raw.ttl_expires_at === null && raw.grants?.desktop === null && Object.keys(raw.grants).length === 1
+    || undefined,
   grants: raw.grants ?? null,
   ttlExpiresAt: raw.ttl_expires_at ?? null,
   endpointRole: routeUrl
@@ -124,6 +129,7 @@ const fromRecord = (r: RemoteSessionRecord): StoredRecord => ({
   server_version: r.serverVersion,
   paired_at: r.pairedAt,
   cert_pin_sha256: r.certPinSha256,
+  system_certificate_trust: r.systemCertificateTrust ? true : undefined,
   grants: r.grants ?? null,
   ttl_expires_at: r.ttlExpiresAt ?? null,
   endpoint_role: r.endpointRole ?? null,
@@ -184,6 +190,33 @@ export const getSession = async (url: string): Promise<RemoteSessionRecord | nul
   }
 }
 
+export const getPinnedConnectorSession = async (url: string): Promise<RemoteSessionRecord | null> => {
+  const direct = (await readFile()).sessions[url]
+  if (!direct?.token || !direct.cert_pin_sha256 ||
+      direct.route_candidates?.some(candidate => candidate.relay.url !== url)) return null
+  const session = toRecord(direct)
+  return isPermanentConnectorSession(session) ? session : null
+}
+
+/** Commit the new browser-approved grant to the exact URL and previous record. */
+export async function saveConnectorTrustMigration(
+  url: string, previous: RemoteSessionRecord
+): Promise<void> {
+  const file = await readFile()
+  const direct = file.sessions[url]
+  if (!direct?.cert_pin_sha256 || direct.cert_pin_sha256 !== previous.certPinSha256 ||
+      direct.token !== previous.token || !isPermanentConnectorSession(toRecord(direct)) ||
+      direct.route_candidates?.some(candidate => candidate.relay.url !== url)) {
+    throw new Error('Connector record changed during enrollment')
+  }
+  file.sessions[url] = {
+    ...direct,
+    cert_pin_sha256: null,
+    system_certificate_trust: true
+  }
+  await writeFile(file)
+}
+
 export interface SaveSessionOptions {
   pairedAt?: number
   certPin?: string | null
@@ -230,6 +263,8 @@ export const saveSession = async (
       serverVersion,
       pairedAt: options.pairedAt ?? Math.floor(Date.now() / 1000),
       certPinSha256: isAlternateRoute ? prev?.cert_pin_sha256 ?? null : options.certPin ?? prev?.cert_pin_sha256 ?? null,
+      systemCertificateTrust: prev?.system_certificate_trust === true &&
+        token === prev.token && (isAlternateRoute || !options.certPin),
       grants: options.grants ?? prev?.grants ?? null,
       ttlExpiresAt: options.ttlExpiresAt !== undefined ? options.ttlExpiresAt : prev?.ttl_expires_at ?? null,
       endpointRole: options.endpointRole ?? prev?.endpoint_role ?? null,

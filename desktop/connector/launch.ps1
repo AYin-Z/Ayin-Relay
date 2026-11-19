@@ -1,4 +1,4 @@
-param([Parameter(Mandatory=$true)][string]$InstallerPath)
+param([Parameter(Mandatory=$true)][string]$InstallerPath, [switch]$MigrateCertificate)
 $ErrorActionPreference = 'Stop'
 $setupPath = Join-Path $PSScriptRoot 'setup.json'
 try {
@@ -15,7 +15,9 @@ try {
     }
     Write-Host 'Ayin-Relay Windows node setup'
     Write-Host 'Compare the confirmation code below with the one shown in your browser.'
-    & $node connector --prepare-browser ([string]$settings.portal) --remote ([string]$settings.relay_url) --setup $setupPath
+    $browserOptions = @('--prepare-browser', [string]$settings.portal, '--remote', [string]$settings.relay_url, '--setup', $setupPath)
+    if ($MigrateCertificate) { $browserOptions += '--migrate-certificate' }
+    & $node connector @browserOptions
     if ($LASTEXITCODE -ne 0) { throw 'Browser approval did not finish.' }
     & (Join-Path $PSScriptRoot 'install.ps1') -EnableManagedUpdates
 } catch {

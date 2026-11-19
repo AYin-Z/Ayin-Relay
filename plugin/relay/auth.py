@@ -409,6 +409,7 @@ class PairingMetadata:
     desktop_only: bool = False
     operator_replace_device_id: str | None = None
     enrollment_challenge: str | None = None
+    connector_migration_device_id: str | None = None
 
 
 @dataclass
@@ -455,6 +456,7 @@ class PairingManager:
     def generate_desktop_invite(
         self, operator_replace_device_id: str | None = None, *,
         enrollment_challenge: str | None = None,
+        connector_migration_device_id: str | None = None,
     ) -> str:
         """Mint a high-entropy, one-use installation invite without logging it.
 
@@ -465,6 +467,10 @@ class PairingManager:
         identity; ordinary download invitations never replace an existing pair.
         """
         lifetime = DESKTOP_INVITE_TTL_SECONDS
+        if connector_migration_device_id is not None and (
+            enrollment_challenge is None or operator_replace_device_id is not None
+        ):
+            raise ValueError("invalid certificate migration options")
         if enrollment_challenge is not None:
             if not is_enrollment_digest(enrollment_challenge) or operator_replace_device_id is not None:
                 raise ValueError("invalid browser enrollment options")
@@ -479,6 +485,7 @@ class PairingManager:
                 ttl_seconds=0, transport_hint="wss", desktop_only=True,
                 operator_replace_device_id=operator_replace_device_id,
                 enrollment_challenge=enrollment_challenge,
+                connector_migration_device_id=connector_migration_device_id,
             ),
         )
         logger.info("Created a one-use desktop installation invite")
@@ -536,11 +543,13 @@ class PairingManager:
         """Check whether a code can be accepted with the supplied proof."""
         return self._find_code(code.upper().strip(), enrollment_verifier) is not None
 
-    def consume_code(self, code: str, *, enrollment_verifier: object = None) -> PairingMetadata | None:
+    def consume_code(
+        self, code: str, *, enrollment_verifier: object = None, connector_migration_device_id: str | None = None,
+    ) -> PairingMetadata | None:
         """Consume a code once, only after verifying any enrollment proof."""
         normalized = code.upper().strip()
         entry = self._find_code(normalized, enrollment_verifier)
-        if entry is None:
+        if entry is None or entry.metadata.connector_migration_device_id != connector_migration_device_id:
             return None
         del self._codes[normalized]
         if entry.metadata.desktop_only:
