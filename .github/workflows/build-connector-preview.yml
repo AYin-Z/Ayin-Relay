@@ -8,6 +8,8 @@ on:
       - 'desktop/connector/**'
       - 'desktop/package.json'
       - 'desktop/scripts/build-windows-node.mjs'
+      - 'desktop/src/lib/windowsUpdateTrust.ts'
+      - 'desktop/src/updater.ts'
       - 'desktop/.bun-version'
       - 'scripts/package-desktop-connector.py'
   push:
@@ -164,6 +166,14 @@ jobs:
             filename = $installer.Name
             sha256 = (Get-FileHash -LiteralPath $installer.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
           } | ConvertTo-Json | Set-Content -LiteralPath 'connector-preview/preview.json' -Encoding utf8
+
+      - name: Verify staged update trust with native Authenticode
+        if: github.event_name == 'pull_request' && runner.environment == 'github-hosted'
+        timeout-minutes: 3
+        shell: powershell -NoProfile -NonInteractive -Command ". '{0}'"
+        run: |
+          ./desktop/connector/tests/windows-update-trust.test.ps1 `
+            -NodeExecutable desktop/dist/bin/hermes-relay-win-x64.exe -Version $env:CONNECTOR_BUILD_VERSION
 
       - uses: actions/upload-artifact@v4
         if: github.event_name != 'pull_request'
