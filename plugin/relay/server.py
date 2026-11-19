@@ -1425,8 +1425,8 @@ async def handle_desktop_ping(request: web.Request) -> web.Response:
     running inside hermes-gateway on the same host. Phone bridges have their
     own auth model; desktop is mediated by the agent.
     """
-    _require_loopback(request)
     server: RelayServer = request.app["server"]
+    _require_local_operator(request, server.config.port)
     tool = request.query.get("tool", "").strip()
     device = request.query.get("device", "").strip() or None
     if not server.desktop.is_client_connected():
@@ -1462,8 +1462,8 @@ async def handle_desktop_health(request: web.Request) -> web.Response:
     through ``desktop.command``: the latest ``desktop.status`` heartbeat
     already carries everything we need.
     """
-    _require_loopback(request)
     server: RelayServer = request.app["server"]
+    _require_local_operator(request, server.config.port)
     snap = server.desktop.status_snapshot()
     cs = snap.get("client_status") or {}
     out = {
@@ -1752,8 +1752,8 @@ async def handle_desktop_dispatch(request: web.Request) -> web.Response:
 
     Loopback-only — see handle_desktop_ping.
     """
-    _require_loopback(request)
     server: RelayServer = request.app["server"]
+    _require_local_operator(request, server.config.port)
     tool_name = request.match_info["tool_name"]
     try:
         args = await request.json()
@@ -1816,7 +1816,7 @@ async def handle_desktop_dispatch(request: web.Request) -> web.Response:
 
 async def _desktop_transfer_args(request: web.Request) -> tuple[dict[str, Any], str | None]:
     """Parse a transfer POST body into (args, device) with loopback enforcement."""
-    _require_loopback(request)
+    _require_local_operator(request, request.app["server"].config.port)
     try:
         args = await request.json()
     except Exception as exc:

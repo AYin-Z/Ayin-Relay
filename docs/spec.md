@@ -13,7 +13,7 @@ Ayin task layer --> AyinServer Relay <-- authenticated WSS -- Windows node
 ```
 
 - **Portal.** An authenticated operator downloads a Windows package with a short-lived, single-use enrollment invitation. The portal issues invitations through a restricted server interface. See the [download portal contract](connector-downloads.md).
-- **Relay service.** The node establishes the outbound WSS connection. The service exchanges the invitation for a revocable device authorization, tracks connected nodes and routes desktop calls to the selected node ID. Health and command receipts support diagnosis. The desktop operator interfaces used on AyinServer are loopback-only.
+- **Relay service.** The node establishes the outbound WSS connection. The service exchanges the invitation for a revocable device authorization, tracks connected nodes and routes desktop calls to the selected node ID. Health and command receipts support diagnosis. The desktop operator interfaces used on AyinServer require a direct connection to the configured loopback listener.
 - **Node.** The installer and daemon are under [`desktop/`](../desktop/). The daemon retains the existing node identity and authorization across restarts and maintains the connection. The node enforces its local tool policy for file operations, commands, desktop input and device capabilities. Windows account, session and device permissions also apply.
 
 ## Current Windows release path

@@ -46,6 +46,26 @@ class DesktopRolloutTests(AioHTTPTestCase):
         self.assertEqual(result.headers["Cache-Control"], "no-store")
         return await result.json()
 
+    async def test_desktop_operator_routes_require_direct_loopback(self) -> None:
+        local = {"Host": "127.0.0.1:8767"}
+        routes = (
+            ("GET", "/desktop/_ping"), ("GET", "/desktop/health"),
+            ("POST", "/desktop/fixture"), ("POST", "/desktop/transfer/push"),
+            ("POST", "/desktop/transfer/pull"),
+        )
+        for method, path in routes:
+            for denied in (
+                {"Host": "external.example.test"},
+                {**local, "Forwarded": "for=192.0.2.1"},
+                {**local, "Origin": "https://external.example.test"},
+                {**local, "CF-Connecting-IP": "192.0.2.1"},
+            ):
+                with self.subTest(method=method, path=path, headers=denied):
+                    response = await self.client.request(method, path, headers=denied)
+                    self.assertEqual(response.status, 403)
+        response = await self.client.get("/desktop/health", headers=local)
+        self.assertEqual(response.status, 200)
+
     async def test_local_identity_and_selected_ids_are_required(self) -> None:
         device_id = self.new_session().device_id
         valid = {"Host": "127.0.0.1:8767"}

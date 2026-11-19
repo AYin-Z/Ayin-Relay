@@ -109,7 +109,7 @@ class NodeReleaseTests(unittest.IsolatedAsyncioTestCase):
         self.verify.side_effect = subprocess.CalledProcessError(1, "osslsigncode")
         client = await self.client()
         self.assertEqual((await client.get(OFFER)).status, 404)
-        self.assertEqual((await client.get("/desktop/health")).status, 200)
+        self.assertEqual((await client.get("/desktop/health", headers={"Host": "127.0.0.1:8767"})).status, 200)
         self.verify.assert_called_once()
 
     async def test_offer_is_disabled_without_configuration(self) -> None:
