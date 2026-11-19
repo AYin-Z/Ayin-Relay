@@ -325,6 +325,7 @@ function Read-ConnectorStatus {
 }
 function Stop-ConnectorDaemon {
     $status = Read-ConnectorStatus
+    if ($status -and $status.process_state -eq 'unknown') { throw '无法确认现有后台连接的进程状态，已保留原安装。' }
     if ($status -and $status.alive) {
         $daemonPid = [int]$status.pid
         & $cli daemon stop 2>$null | Out-Null

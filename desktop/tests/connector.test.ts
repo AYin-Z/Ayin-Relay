@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { basename, join } from 'node:path'
 import test, { type TestContext } from 'node:test'
 
 import { connectorCommand, validateConnectorSetup } from '../src/commands/connector.js'
@@ -83,6 +83,21 @@ async function fixture(t: TestContext) {
   const run = (flags: Record<string, string | boolean> = { setup: file, 'grant-tools': true }) => connectorCommand({ command: 'connector', flags, positional: [] })
   return { dir, file, run, start, configurations, output: () => output }
 }
+
+test('connector authorization requires the recorded daemon to be confirmed gone', async t => {
+  const f = await fixture(t)
+  const profile = join(f.dir, '.hermes')
+  await mkdir(profile, { recursive: true })
+  const status = join(profile, 'daemon-status.json')
+  for (const record of [{ pid: 0 }, { pid: process.pid, process_name: basename(process.execPath) }]) {
+    await writeFile(status, JSON.stringify(record))
+    assert.equal(await f.run(), 1)
+    assert.equal(f.start.mock.callCount(), 0)
+  }
+  await writeFile(status, JSON.stringify({ pid: process.pid, process_name: 'unrelated.exe' }))
+  assert.equal(await f.run(), 0)
+  assert.equal(f.start.mock.callCount(), 1)
+})
 
 test('connector first install persists full access without TUI or workspace attachment', async t => {
   const f = await fixture(t)

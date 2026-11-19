@@ -42,7 +42,7 @@ import { GatewayClient } from '../gatewayClient.js'
 import type { GatewayEvent, SessionCreateResponse } from '../gatewayTypes.js'
 import {
   clearDaemonStatus,
-  isDaemonProcessAlive,
+  daemonProcessState,
   isPidAlive,
   readDaemonStatus,
   writeDaemonStatus,
@@ -199,8 +199,7 @@ function fmtAge(seconds: number): string {
   return `${Math.floor(seconds / 86_400)}d`
 }
 
-/** `daemon --status` — read the status file and report. Exit 0 if a daemon is
- * live, 1 if the file is stale (pid gone) so scripts can branch on it. */
+/** Exit 0 only when the status file identifies a live daemon. */
 async function printDaemonStatus(args: ParsedArgs): Promise<number> {
   const t = makeTheme({ noColor: !!args.flags['no-color'] })
   const status = await readDaemonStatus()
@@ -210,9 +209,10 @@ async function printDaemonStatus(args: ParsedArgs): Promise<number> {
     )
     return 1
   }
-  const alive = isDaemonProcessAlive(status)
+  const processState = daemonProcessState(status)
+  const alive = processState === 'alive'
   if (args.flags.json) {
-    process.stdout.write(JSON.stringify({ ...status, alive }, null, 2) + '\n')
+    process.stdout.write(JSON.stringify({ ...status, alive, process_state: processState }, null, 2) + '\n')
     return alive ? 0 : 1
   }
   const now = Math.floor(Date.now() / 1000)
@@ -221,8 +221,10 @@ async function printDaemonStatus(args: ParsedArgs): Promise<number> {
   const kv = (label: string, value: string): string => `  ${t.muted((label + ':').padEnd(9))} ${value}`
 
   process.stdout.write(t.bold('hermes-relay daemon') + '\n')
-  if (!alive) {
-    process.stdout.write(kv('state', `${t.err('not running')} ${t.muted(`(pid ${status.pid} gone — stale file)`)}`) + '\n')
+  if (processState === 'unknown') {
+    process.stdout.write(kv('state', t.warn('process could not be verified')) + '\n')
+  } else if (processState === 'gone') {
+    process.stdout.write(kv('state', t.err('not running (stale status file)')) + '\n')
   } else {
     const label =
       status.state === 'connected'
@@ -503,22 +505,28 @@ async function runElevatedDaemonLifecycle(
   })
 }
 
+function reportUnverifiedDaemon(t: ReturnType<typeof makeTheme>, pid: number): number {
+  process.stderr.write(t.err(`could not verify daemon pid ${pid}; try again or check the process locally`) + '\n')
+  return 1
+}
+
 /** `daemon start` / `--detach` — spawn the foreground daemon as a detached
  * background process (no console window on Windows), logging to a file. */
 async function startDetachedDaemonLocked(args: ParsedArgs): Promise<number> {
   const t = makeTheme({ noColor: !!args.flags['no-color'] })
 
   const existing = await readDaemonStatus()
-  if (existing && isDaemonProcessAlive(existing)) {
-    process.stderr.write(
-      t.warnLine(`daemon already running (pid ${existing.pid}) — stop it first: hermes-relay daemon stop`) + '\n'
-    )
-    return 1
+  if (existing) {
+    const state = daemonProcessState(existing, true)
+    if (state === 'unknown') return reportUnverifiedDaemon(t, existing.pid)
+    if (state === 'alive') {
+      process.stderr.write(
+        t.warnLine(`daemon already running (pid ${existing.pid}) — stop it first: hermes-relay daemon stop`) + '\n'
+      )
+      return 1
+    }
+    await clearDaemonStatus(existing.pid)
   }
-  // Remove stale state before spawning. Besides keeping status truthful while
-  // the new child starts, this prevents an unlikely recycled PID from matching
-  // a previous daemon's connected record.
-  await clearDaemonStatus()
 
   const logPath = daemonLogPath()
   try {
@@ -620,8 +628,10 @@ async function stopDaemonLocked(args: ParsedArgs): Promise<number> {
     process.stdout.write(t.muted('No daemon status file — nothing to stop.') + '\n')
     return 1
   }
-  if (!isDaemonProcessAlive(status)) {
-    await clearDaemonStatus()
+  const state = daemonProcessState(status, true)
+  if (state === 'unknown') return reportUnverifiedDaemon(t, status.pid)
+  if (state === 'gone') {
+    await clearDaemonStatus(status.pid)
     process.stdout.write(t.muted(`Daemon (pid ${status.pid}) is already gone — cleared stale status.`) + '\n')
     return 0
   }
@@ -633,7 +643,7 @@ async function stopDaemonLocked(args: ParsedArgs): Promise<number> {
     process.stderr.write(t.err(`failed to stop daemon pid ${status.pid}: ${(e as Error).message}`) + '\n')
     return 1
   }
-  await clearDaemonStatus()
+  await clearDaemonStatus(status.pid)
   process.stdout.write(t.okLine(`stopped daemon (pid ${status.pid})`) + '\n')
   return 0
 }
@@ -650,7 +660,10 @@ async function stopDaemon(args: ParsedArgs): Promise<number> {
 async function restartDaemonLocked(args: ParsedArgs): Promise<number> {
   const t = makeTheme({ noColor: !!args.flags['no-color'] })
   const existing = await readDaemonStatus()
-  if (existing && isDaemonProcessAlive(existing)) {
+  if (!existing) return startDetachedDaemonLocked(args)
+  let state = daemonProcessState(existing, true)
+  if (state === 'unknown') return reportUnverifiedDaemon(t, existing.pid)
+  if (state === 'alive') {
     try {
       process.kill(existing.pid)
     } catch (error) {
@@ -661,10 +674,12 @@ async function restartDaemonLocked(args: ParsedArgs): Promise<number> {
     }
 
     const deadline = Date.now() + 5_000
-    while (isDaemonProcessAlive(existing) && Date.now() < deadline) {
-      await new Promise(resolve => setTimeout(resolve, 50))
-    }
-    if (isDaemonProcessAlive(existing)) {
+    do {
+      await new Promise(resolve => setTimeout(resolve, 100))
+      state = daemonProcessState(existing)
+    } while (state !== 'gone' && Date.now() < deadline)
+    if (state === 'unknown') return reportUnverifiedDaemon(t, existing.pid)
+    if (state === 'alive') {
       process.stderr.write(t.err(`daemon pid ${existing.pid} did not stop within 5 seconds`) + '\n')
       return 1
     }
@@ -696,8 +711,8 @@ async function restartDaemonAsUser(args: ParsedArgs): Promise<number> {
   if (
     process.platform === 'win32' &&
     existing &&
-    isDaemonProcessAlive(existing) &&
-    existing.privilege === 'administrator'
+    existing.privilege === 'administrator' &&
+    daemonProcessState({ pid: existing.pid, process_name: existing.process_name }, true) === 'alive'
   ) {
     // An unelevated caller cannot terminate an elevated daemon. Elevate only
     // the stop operation, wait for it to finish, then start the replacement
@@ -906,7 +921,9 @@ export async function daemonCommand(args: ParsedArgs): Promise<number> {
   )
   const status: DaemonStatus = {
     pid: process.pid,
-    process_name: path.basename(process.execPath),
+    process_name: instanceLock.owner.process_name,
+    executable_path: process.platform === 'win32' ? instanceLock.owner.executable_path : undefined,
+    process_started_at: instanceLock.owner.process_started_at,
     node_version: VERSION,
     url,
     configured_url: configuredUrl,

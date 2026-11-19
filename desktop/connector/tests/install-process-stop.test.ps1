@@ -10,7 +10,7 @@ if (-not $InstallerSource) {
 $tokens=$null;$parseErrors=$null
 $ast=[Management.Automation.Language.Parser]::ParseInput($InstallerSource,[ref]$tokens,[ref]$parseErrors)
 if ($parseErrors.Count) { throw 'Installer parsing failed' }
-foreach ($name in @('Get-ConnectorBinaryProcesses','Stop-RemainingConnectorProcesses','Replace-ConnectorBinary','Get-ConnectorTaskManagementSddl','Task-IsRetiredLegacy')) {
+foreach ($name in @('Stop-ConnectorDaemon','Get-ConnectorBinaryProcesses','Stop-RemainingConnectorProcesses','Replace-ConnectorBinary','Get-ConnectorTaskManagementSddl','Task-IsRetiredLegacy')) {
     $node=$ast.Find({param($n) $n -is [Management.Automation.Language.FunctionDefinitionAst] -and $n.Name -eq $name},$true)
     if (-not $node) { throw ('Missing installer function '+$name) }
     . ([ScriptBlock]::Create($node.Extent.Text))
@@ -90,6 +90,11 @@ $failed=$false
 try { Stop-RemainingConnectorProcesses } catch { $failed=$true }
 Assert-Case ($failed) 'An unconfirmed exit must abort replacement'
 
+function Read-ConnectorStatus { [pscustomobject]@{alive=$false;process_state='unknown';pid=110} }
+$failed=$false
+try { Stop-ConnectorDaemon } catch { $failed=$true }
+Assert-Case $failed 'An unverified daemon status must abort installation'
+
 # A real bounded filesystem probe verifies replacement of an existing target
 # on Windows without loading a CLI or touching an installation directory.
 $temporary=Join-Path ([IO.Path]::GetTempPath()) ('connector-replace-test-'+[Guid]::NewGuid().ToString('N'))
@@ -124,4 +129,4 @@ Assert-Case (Task-IsRetiredLegacy 'HermesRelay-KeepAlive' ([pscustomobject]@{Sta
 Assert-Case (Task-IsRetiredLegacy 'HermesRelayDaemon' ([pscustomobject]@{State='Disabled'})) 'Disabled historical daemon must be left untouched'
 Assert-Case (-not (Task-IsRetiredLegacy 'HermesRelay-Connector-0123456789AB' ([pscustomobject]@{State='Disabled'}))) 'Paused current connector must still be updated'
 Assert-Case (-not (Task-IsRetiredLegacy 'HermesRelayDaemon' ([pscustomobject]@{State='Ready'}))) 'Active historical task still requires migration'
-@{passed=12;installer_parse_errors=0;scope='mocked process closure, task ACL, retired legacy tasks and temporary-file replacement'}|ConvertTo-Json -Compress
+@{passed=13;installer_parse_errors=0;scope='mocked process closure, task ACL, retired legacy tasks and temporary-file replacement'}|ConvertTo-Json -Compress
