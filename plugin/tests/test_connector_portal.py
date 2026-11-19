@@ -378,6 +378,13 @@ class PortalNetworkTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(response.status, 400)
         response = await self.client.get(path, headers=headers, params=setup)
         self.assertEqual(response.status, 200)
+        policy = response.headers["Content-Security-Policy"]
+        self.assertIn("form-action 'self' http://127.0.0.1:49172/ayin-relay/enrollment;", policy)
+        self.assertIn("frame-ancestors 'none'", policy)
+        download = await self.client.get("/relay/private/", headers=headers)
+        self.assertEqual(download.status, 200)
+        self.assertIn("form-action 'self';", download.headers["Content-Security-Policy"])
+        self.assertNotIn("http://127.0.0.1:", download.headers["Content-Security-Policy"])
         markup = await response.text()
         self.assertIn("AAAAAAAA", markup)
         csrf_match = re.search(r'name="csrf" value="([^"]+)"', markup)
