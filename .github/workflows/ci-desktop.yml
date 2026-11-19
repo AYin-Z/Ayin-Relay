@@ -90,6 +90,10 @@ jobs:
           ./connector/tests/release-evidence.test.ps1
           ./connector/tests/uninstall.test.ps1
 
+      - name: Test daemon process verification (Windows)
+        if: runner.os == 'Windows'
+        run: npx tsx --test tests/daemonStatus.test.ts tests/connector.test.ts
+
       - name: --version
         run: node bin/hermes-relay.js --version
 

@@ -7,7 +7,7 @@
 // version, advertised-tool count. Mirrors the existing desktop-voice.json
 // discovery-file pattern in daemon.ts.
 
-import { promises as fs } from 'node:fs'
+import { promises as fs, readlinkSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { basename, dirname, join, win32 } from 'node:path'
 import { execFileSync } from 'node:child_process'
@@ -30,6 +30,8 @@ export interface DaemonStatus {
   /** Executable image recorded by the daemon. Used to reject a recycled PID
    * before status/stop treats an unrelated process as Hermes Relay. */
   process_name?: string
+  executable_path?: string
+  process_started_at?: number
   url: string
   /** Logical host selected by the user when `url` is a resolved fallback route. */
   configured_url?: string
@@ -136,13 +138,15 @@ export function windowsProcessProbeScript(pid: number): string {
     '[Console]::OutputEncoding=New-Object Text.UTF8Encoding($false)',
     "$snapshot=@{state='unknown'};$p=$null",
     'try {',
-    `$p=[Diagnostics.Process]::GetProcessById(${pid})`,
+    `try {$p=[Diagnostics.Process]::GetProcessById(${pid})} catch [ArgumentException] {$snapshot=@{state='gone'}}`,
+    'if($p){',
     "if($p.HasExited){$snapshot=@{state='gone'}}else{",
     "$snapshot=@{state='alive';name=$p.ProcessName;executablePath=$null;startedAt=$null}",
     'try {$snapshot.executablePath=$p.MainModule.FileName} catch {}',
     'try {$snapshot.startedAt=([DateTimeOffset]$p.StartTime.ToUniversalTime()).ToUnixTimeMilliseconds()} catch {}',
     '}',
-    "} catch [ArgumentException] {$snapshot=@{state='gone'}} catch {$snapshot=@{state='unknown'}}",
+    '}',
+    "} catch {$snapshot=@{state='unknown'}}",
     'finally {if($p){$p.Dispose()}}',
     `Write-Output ('${WINDOWS_PROCESS_MARKER}'+($snapshot|ConvertTo-Json -Compress))`
   ].join('\n')
@@ -179,17 +183,23 @@ export interface ProcessOwnerIdentity {
   process_started_at?: number
 }
 
-/** Unknown identity/permission failures hold the lock. A successful native
- * absence or a positively different owner is required before reclamation. */
-export function windowsProcessMatchesOwner(owner: ProcessOwnerIdentity, snapshot: WindowsProcessSnapshot): boolean {
-  if (snapshot.state === 'unknown') return true
-  if (snapshot.state === 'gone') return false
-  if (normalizeProcessName(snapshot.name) !== normalizeProcessName(owner.process_name)) return false
+export type DaemonProcessState = WindowsProcessSnapshot['state']
+
+export function windowsProcessOwnerState(owner: ProcessOwnerIdentity, snapshot: WindowsProcessSnapshot): DaemonProcessState {
+  if (snapshot.state !== 'alive') return snapshot.state
+  if (normalizeProcessName(snapshot.name) !== normalizeProcessName(owner.process_name)) return 'gone'
   if (owner.executable_path && snapshot.executablePath &&
-      win32.normalize(owner.executable_path).toLowerCase() !== win32.normalize(snapshot.executablePath).toLowerCase()) return false
+      win32.normalize(owner.executable_path).toLowerCase() !== win32.normalize(snapshot.executablePath).toLowerCase()) return 'gone'
   if (owner.process_started_at !== undefined && snapshot.startedAt !== null &&
-      owner.process_started_at !== snapshot.startedAt) return false
-  return true
+      owner.process_started_at !== snapshot.startedAt) return 'gone'
+  if ((owner.executable_path && !snapshot.executablePath) ||
+      (owner.process_started_at !== undefined && snapshot.startedAt === null)) return 'unknown'
+  return 'alive'
+}
+
+/** Only a confirmed exit or a different owner permits lock reclamation. */
+export function windowsProcessMatchesOwner(owner: ProcessOwnerIdentity, snapshot: WindowsProcessSnapshot): boolean {
+  return windowsProcessOwnerState(owner, snapshot) !== 'gone'
 }
 
 export function processOwnerIsAlive(owner: ProcessOwnerIdentity): boolean {
@@ -219,10 +229,7 @@ function normalizeProcessName(value: string): string {
 
 function processNameForPid(pid: number): string | null {
   try {
-    if (process.platform === 'win32') {
-      const snapshot = windowsProcessSnapshot(pid)
-      return snapshot.state === 'alive' ? snapshot.name : null
-    }
+    if (process.platform === 'linux') return readlinkSync(`/proc/${pid}/exe`).replace(/ \(deleted\)$/, '')
     const output = execFileSync('ps', ['-p', String(pid), '-o', 'comm='], {
       encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'ignore']
@@ -233,16 +240,21 @@ function processNameForPid(pid: number): string | null {
   }
 }
 
-/** Validate both PID existence and executable identity. PID-only probes are
- * unsafe for status/stop because operating systems can recycle a daemon PID
- * for an unrelated process immediately after a crash. */
-export function isDaemonProcessAlive(
-  status: Pick<DaemonStatus, 'pid' | 'process_name'>,
-  lookup: (pid: number) => string | null = processNameForPid
-): boolean {
-  if (!isPidAlive(status.pid)) return false
-  const actual = lookup(status.pid)
-  if (!actual) return false
+type DaemonProcessIdentity = Pick<DaemonStatus, 'pid' | 'process_name' | 'executable_path' | 'process_started_at'>
+
+/** Verify the OS process independently of the last connection heartbeat. */
+export function daemonProcessState(status: DaemonProcessIdentity, refresh = false): DaemonProcessState {
+  if (!Number.isSafeInteger(status.pid) || status.pid <= 0) return 'unknown'
   const expected = status.process_name ?? basename(process.execPath)
-  return normalizeProcessName(actual) === normalizeProcessName(expected)
+  if (process.platform === 'win32') {
+    return windowsProcessOwnerState({ ...status, process_name: expected }, windowsProcessSnapshot(status.pid, refresh))
+  }
+  if (!isPidAlive(status.pid)) return 'gone'
+  const actual = processNameForPid(status.pid)
+  if (!actual) return isPidAlive(status.pid) ? 'unknown' : 'gone'
+  return normalizeProcessName(actual) === normalizeProcessName(expected) ? 'alive' : 'gone'
+}
+
+export function isDaemonProcessAlive(status: DaemonProcessIdentity): boolean {
+  return daemonProcessState(status) === 'alive'
 }

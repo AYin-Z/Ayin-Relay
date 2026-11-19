@@ -8,7 +8,7 @@ import type { ParsedArgs } from '../cli.js'
 import { desktopRelayIdentity } from '../deviceIdentity.js'
 import { receiveBrowserEnrollment } from '../lib/browserEnrollment.js'
 import { canonicalRelayUrl, getHostAccessMode, setHostAccessMode } from '../lib/hostAccessPolicy.js'
-import { isPidAlive, readDaemonStatus } from '../lib/daemonStatus.js'
+import { daemonProcessState, readDaemonStatus } from '../lib/daemonStatus.js'
 import { getSession, isPermanentConnectorSession, saveSession } from '../remoteSessions.js'
 import { RelayTransport } from '../transport/RelayTransport.js'
 
@@ -91,7 +91,12 @@ export async function connectorCommand(args: ParsedArgs): Promise<number> {
     // A validation socket uses the same persisted device identity. Refuse to
     // displace its running daemon; the installer stops and restores it safely.
     const daemon = await readDaemonStatus()
-    if (daemon && Number.isInteger(daemon.pid) && daemon.pid > 0 && isPidAlive(daemon.pid)) {
+    const daemonState = daemon ? daemonProcessState(daemon, true) : 'gone'
+    if (daemonState === 'unknown') {
+      process.stderr.write('Could not verify the existing daemon before connector authorization.\n')
+      return 1
+    }
+    if (daemonState === 'alive') {
       process.stderr.write('Stop the existing daemon before connector authorization.\n')
       return 1
     }
