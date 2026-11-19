@@ -30,6 +30,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/), and this
 - Desktop-only credentials cannot access server voice, media, profiles, or management routes.
 - Desktop heartbeat and diagnostics report input allowed by the host policy without requiring a temporary control grant.
 
+## [0.4.0-rc.1] - 2026-11-19
+
+### Added
+
+- Public unsigned Windows connector preview with source provenance and a SHA-256 digest for signing-provider inspection.
+- Browser approval for the single-file Windows installer and signed, device-scoped update packages with rollback.
+
 ## [Android 1.19.0] - 2026-10-20
 
 ### Added

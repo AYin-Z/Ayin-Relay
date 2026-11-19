@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   build:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.ref_name == vars.CONNECTOR_PREVIEW_TAG }}
     runs-on: windows-2025
     timeout-minutes: 25
     env:
