@@ -137,7 +137,7 @@ def package_exe(binary: Path, output: Path, source_sha: str, version: str,
         setup_script = stage / "setup.nsi"
         shutil.copyfile(INSTALLER_DIR / setup_script.name, setup_script)
         subprocess.run([makensis, f"{switch}DOUTPUT={candidate}",
-                        f"{switch}DVERSION_NUM={version_num}", str(setup_script)],
+                        f"{switch}DVERSION_NUM={version_num}", f"{switch}DVERSION={version}", str(setup_script)],
                        check=True)
         os.link(candidate, output)
         return manifest

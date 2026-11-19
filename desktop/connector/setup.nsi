@@ -4,8 +4,9 @@ SetCompressor /SOLID lzma
 Name "Ayin-Relay Windows Connector"
 OutFile "${OUTPUT}"
 VIProductVersion "${VERSION_NUM}"
-VIAddVersionKey "ProductName" "Ayin-Relay Windows Connector"
-VIAddVersionKey "FileDescription" "Ayin-Relay Windows Connector Setup"
+VIAddVersionKey "ProductName" "Ayin-Relay"
+VIAddVersionKey "ProductVersion" "${VERSION_NUM}"
+VIAddVersionKey "FileDescription" "Ayin-Relay Windows Connector Setup ${VERSION}"
 VIAddVersionKey "FileVersion" "${VERSION_NUM}"
 VIAddVersionKey "LegalCopyright" "Ayin-Relay contributors, MIT License"
 

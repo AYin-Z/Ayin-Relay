@@ -177,8 +177,8 @@ test('Windows node verification matches the exact approved version and product',
   assert.equal(compareVersions('1.2.3-rc-hotfix.1', '1.2.3-rc-hotfix.2'), -1)
   const fingerprint = 'c'.repeat(64)
   const probe = (product: string, version: string) =>
-    `${fingerprint}\n${fingerprint}\n${JSON.stringify({ product, description: `${product} ${version}` })}`
-  const product = 'Ayin-Relay Windows Node'
+    `${fingerprint}\n${fingerprint}\n${JSON.stringify({ product, description: `Ayin-Relay Windows Node ${version}` })}`
+  const product = 'Ayin-Relay'
   assert.doesNotThrow(() => requireWindowsNodeVersion(probe(product, '1.2.3-rc.2'), '1.2.3-rc.2'))
   for (const mismatch of [probe(product, '1.2.3'), probe(product, '1.2.3-rc.1'), probe('Other product', '1.2.3-rc.2')]) {
     assert.throws(() => requireWindowsNodeVersion(mismatch, '1.2.3-rc.2'), /product and version/)

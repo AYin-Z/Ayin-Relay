@@ -65,9 +65,10 @@ class ConnectorPackageTests(unittest.TestCase):
                 self.assertEqual((staging / "hermes-relay.exe").read_bytes(), binary.read_bytes())
                 manifest = json.loads((staging / "manifest.json").read_bytes())
                 self.assertEqual(manifest["sha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
+                self.assertEqual(args[2:4], ["-DVERSION_NUM=1.2.3.0", "-DVERSION=1.2.3-rc.2"])
                 Path(args[1].split("=", 1)[1]).write_bytes(b"MZ produced executable")
 
-            args = (binary, output, SOURCE_SHA, "1.2.3", portal, relay, "makensis")
+            args = (binary, output, SOURCE_SHA, "1.2.3-rc.2", portal, relay, "makensis")
             with patch.object(packager.subprocess, "run", side_effect=OSError("missing compiler")):
                 with self.assertRaises(OSError):
                     packager.package_exe(*args)
