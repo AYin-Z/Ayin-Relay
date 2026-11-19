@@ -17,8 +17,8 @@ function New-FixtureSigner([string]$Name) {
     $thumbprints.Add($certificate.Thumbprint)
     $publicCertificate = Join-Path $root "$Name.cer"
     Export-Certificate -Cert $certificate -FilePath $publicCertificate | Out-Null
-    Write-Host "Trusting disposable $Name certificate for this runner account."
-    & certutil.exe -f -user -addstore Root $publicCertificate | Out-Host
+    Write-Host "Trusting disposable $Name certificate on the isolated runner."
+    & certutil.exe -f -addstore Root $publicCertificate | Out-Host
     if ($LASTEXITCODE -ne 0) { throw 'Cannot trust the disposable signing certificate.' }
     return $certificate
 }
@@ -51,7 +51,7 @@ try {
 } finally {
     Write-Host 'Removing the temporary test certificates and files.'
     foreach ($thumbprint in $thumbprints) {
-        $trusted = "Cert:\CurrentUser\Root\$thumbprint"
+        $trusted = "Cert:\LocalMachine\Root\$thumbprint"
         if (Test-Path -LiteralPath $trusted) { Remove-Item -LiteralPath $trusted -Confirm:$false }
         $identity = "Cert:\CurrentUser\My\$thumbprint"
         if (Test-Path -LiteralPath $identity) { Remove-Item -LiteralPath $identity -DeleteKey -Confirm:$false }

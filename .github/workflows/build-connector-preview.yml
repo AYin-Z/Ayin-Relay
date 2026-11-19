@@ -8,6 +8,8 @@ on:
       - 'desktop/connector/**'
       - 'desktop/package.json'
       - 'desktop/scripts/build-windows-node.mjs'
+      - 'desktop/src/lib/windowsUpdateTrust.ts'
+      - 'desktop/src/updater.ts'
       - 'desktop/.bun-version'
       - 'scripts/package-desktop-connector.py'
   push:
