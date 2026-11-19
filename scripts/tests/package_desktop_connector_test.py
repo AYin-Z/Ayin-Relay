@@ -53,16 +53,19 @@ class ConnectorPackageTests(unittest.TestCase):
 
             def compile_stub(args: list[str], *, check: bool) -> None:
                 self.assertTrue(check)
-                staging = Path(args[1].split("=", 1)[1])
+                script = Path(args[-1])
+                staging = script.parent
+                self.assertEqual(script.name, "setup.nsi")
+                self.assertIn('File "launch.ps1"', script.read_text(encoding="utf-8"))
                 self.assertEqual({entry.name for entry in staging.iterdir()},
                                  {"launch.ps1", "install.ps1", "Stop.cmd", "Status.cmd", "Uninstall.cmd",
-                                  "hermes-relay.exe", "manifest.json", "portal.json"})
+                                  "hermes-relay.exe", "manifest.json", "portal.json", "setup.nsi"})
                 self.assertEqual(json.loads((staging / "portal.json").read_bytes()),
                                  {"portal": portal, "relay_url": relay})
                 self.assertEqual((staging / "hermes-relay.exe").read_bytes(), binary.read_bytes())
                 manifest = json.loads((staging / "manifest.json").read_bytes())
                 self.assertEqual(manifest["sha256"], hashlib.sha256(binary.read_bytes()).hexdigest())
-                Path(args[2].split("=", 1)[1]).write_bytes(b"MZ produced executable")
+                Path(args[1].split("=", 1)[1]).write_bytes(b"MZ produced executable")
 
             args = (binary, output, SOURCE_SHA, "1.2.3", portal, relay, "makensis")
             with patch.object(packager.subprocess, "run", side_effect=OSError("missing compiler")):

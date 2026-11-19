@@ -21,14 +21,14 @@ FunctionEnd
 Section
   InitPluginsDir
   SetOutPath "$PLUGINSDIR"
-  File "${PAYLOAD}/launch.ps1"
-  File "${PAYLOAD}/install.ps1"
-  File "${PAYLOAD}/Stop.cmd"
-  File "${PAYLOAD}/Status.cmd"
-  File "${PAYLOAD}/Uninstall.cmd"
-  File "${PAYLOAD}/hermes-relay.exe"
-  File "${PAYLOAD}/manifest.json"
-  File "${PAYLOAD}/portal.json"
+  File "launch.ps1"
+  File "install.ps1"
+  File "Stop.cmd"
+  File "Status.cmd"
+  File "Uninstall.cmd"
+  File "hermes-relay.exe"
+  File "manifest.json"
+  File "portal.json"
   ClearErrors
   ExecWait '"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoLogo -NoProfile -ExecutionPolicy RemoteSigned -File "$PLUGINSDIR\launch.ps1" -InstallerPath "$EXEPATH"' $0
   IfErrors failed
