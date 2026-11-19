@@ -93,7 +93,7 @@ python scripts/prepare-windows-connector-deployment.py \
   --output "$STAGED_CONFIG_DIR"
 ```
 
-Repeat `--device-id` for each approved installation. The command verifies both signatures and checks the enrollment origin, embedded release manifest and embedded node bytes before staging `portal.json` and `windows-release-offer.json`. It retains the existing Access policy and ZIP fallback. Use the new files to configure staging after review and confirm the signed installer on Windows before switching production.
+Repeat `--device-id` for each approved installation. The command verifies both publisher signatures and their timestamps, then checks the enrollment origin, embedded release manifest and embedded node bytes before staging `portal.json` and `windows-release-offer.json`. It retains the existing Access policy and ZIP fallback. Use the new files to configure staging after review and confirm the signed installer on Windows before switching production.
 
 ## Windows device evidence
 

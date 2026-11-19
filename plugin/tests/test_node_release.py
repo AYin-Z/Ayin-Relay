@@ -48,7 +48,10 @@ class NodeReleaseTests(unittest.IsolatedAsyncioTestCase):
         }
         self.config.touch(mode=0o600)
         self.write_offer()
-        self.verify = self.enterContext(patch("plugin.installer_release.subprocess.run"))
+        self.verify = self.enterContext(patch(
+            "plugin.installer_release.subprocess.run",
+            return_value=subprocess.CompletedProcess([], 0, stdout=b"Timestamp Server Signature verification: ok\n"),
+        ))
 
     def write_offer(self) -> None:
         self.config.write_text(json.dumps(self.offer), encoding="utf-8")
