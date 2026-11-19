@@ -1,2 +1,2 @@
 // Regenerated from package.json by gen:version script. Do not edit by hand.
-export const VERSION = "0.4.0-rc.2" as const
+export const VERSION = "0.4.0-rc.3" as const
