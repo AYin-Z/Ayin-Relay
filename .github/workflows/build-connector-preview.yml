@@ -167,7 +167,8 @@ jobs:
 
       - name: Verify staged update trust with native Authenticode
         if: github.event_name == 'pull_request' && runner.environment == 'github-hosted'
-        shell: powershell
+        timeout-minutes: 3
+        shell: powershell -NoProfile -NonInteractive -Command ". '{0}'"
         run: |
           ./desktop/connector/tests/windows-update-trust.test.ps1 `
             -NodeExecutable desktop/dist/bin/hermes-relay-win-x64.exe -Version $env:CONNECTOR_BUILD_VERSION
