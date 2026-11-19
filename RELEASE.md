@@ -25,6 +25,22 @@ To repeat the check manually, install the candidate with `[connector-portal]` in
 
 ## Windows signatures and updates
 
+### Public unsigned preview
+
+An approved desktop prerelease tag from `dev` triggers **Build Windows
+connector preview**. Set the repository variables `CONNECTOR_ENROLLMENT_URL`
+and `CONNECTOR_RELAY_URL` to the public HTTPS enrollment endpoint and public
+WSS endpoint before tagging. The workflow verifies the embedded files and
+node version on a GitHub-hosted Windows runner, then uploads the EXE and its
+source and SHA-256 record as a workflow artifact.
+
+Use the verified EXE as the public prerelease asset for signing-provider
+inspection. Label it as unsigned. Installation requires matching valid
+publisher signatures on the installer and its embedded node. Device enrollment
+still requires browser authentication and local confirmation.
+
+### Signed Windows release
+
 Prepare the private installer and its node binary on an x64 Windows signing host with Git, Python 3.11+, Node/npm, the Bun version in `desktop/.bun-version`, NSIS and Windows SDK SignTool. The signing provider must expose the approved code-signing certificate and key through the current Windows user's personal certificate store. Supply the provider's HTTPS RFC 3161 timestamp URL and pin the certificate's SHA-256 DER fingerprint. [Windows SDK SignTool documentation](https://learn.microsoft.com/en-us/windows/win32/seccrypto/signtool)
 
 Run the following from the repository with deployment settings supplied in the indicated environment variables.
